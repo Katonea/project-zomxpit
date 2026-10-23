@@ -206,8 +206,65 @@ const LEVELS = [
   { id: 9, name: '총공세', mid: 'mbflame', hpMul: 2.91, bossMul: 1.70, dmgMul: 1.50, waves: 6, midAfter: 3, boss: 'paladin', w: { boar: 2, knight: 3, archer: 2, shield: 1, priest: 1, bomber: 2 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
   { id: 10, name: '정유소', mid: 'mbtoxic', hpMul: 2.30, bossMul: .70, dmgMul: 1.00, waves: 7, midAfter: 3, boss: 'archmage', w: { boar: 2, knight: 3, archer: 1, shield: 1, priest: 1, bomber: 1, mage: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
 ];
-// 저장 (M3에서 채움). 아트 팩이 META.sel을 씀
-let META = { sel: 'hero' };
+
+// ===================== 4. 저장 (META) =====================
+const SAVE_KEY = 'monsterpit.save.v1';
+const ALL_FNS = Object.keys(FN);
+const rarityOf = f => Object.keys(BALL_RARITY).find(k => BALL_RARITY[k].includes(f));
+function freshMeta() {
+  return { v: 1, pinball: 0, plv: 1, pxp: 0, best: 0, sel: 'hero', chars: { hero: { lv: 1, shards: 0 } }, shards: {},
+    balls: { fire: { lv: 1, copies: 0 }, frost: { lv: 1, copies: 0 }, split: { lv: 1, copies: 0 } }, equip: ['fire', 'frost'], picks: null,
+    unlocked: RAID.leagues[0].balls.slice(), tickets: 5, ticketT: 0, rp: 0, arenaMax: 0, raidDay: '', spared: {},
+    tut: {}, seenTitle: false, firstCycle: true, autoT: Date.now(), set: { sfx: .8, music: .4, vib: true, ctrl: 'stick' } };
+}
+let META = freshMeta(), SAVING = true;
+function loadMeta() {
+  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { const m = JSON.parse(raw), f = freshMeta(); META = { ...f, ...m, set: { ...f.set, ...(m.set || {}) }, tut: { ...(m.tut || {}) } }; } } catch (e) { META = freshMeta(); }
+}
+function saveMeta() { if (!SAVING) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify(META)); } catch (e) {} }
+const charLv = id => META.chars[id] ? META.chars[id].lv : 0;
+function addBall(id, n = 1) { const b = META.balls[id]; if (b) b.copies += n; else { META.balls[id] = { lv: 1, copies: n - 1 }; } }
+function addShard(id, n = 1) { // 미해금이면 10개에 해금, 이후 조각은 강화 재료 (최대 레벨이면 핀볼로)
+  let extra = 0;
+  if (!META.chars[id]) { META.shards[id] = (META.shards[id] || 0) + n; if (META.shards[id] >= PINBALL.shardsToUnlock) { extra = META.shards[id] - PINBALL.shardsToUnlock; delete META.shards[id]; META.chars[id] = { lv: 1, shards: 0 }; } }
+  else extra = n;
+  if (extra) { const c = META.chars[id]; if (c.lv >= PINBALL.charMaxLv) META.pinball += extra * PINBALL.dupShardPb; else c.shards += extra; }
+}
+function addPxp(v) { META.pxp += v; let up = 0; while (META.pxp >= PLV.need(META.plv)) { META.pxp -= PLV.need(META.plv); META.plv++; up++; } return up; }
+
+// ===================== 5. 핀볼 규칙 (확률 선결정) =====================
+const pbReel = () => 2 + Math.floor((META.best || 0) / 3);
+function rollSlot() { return wpick(PINBALL.slots.map((s, i) => [i, s.w])); }
+function rollBall(rar) { // 해금된 볼 중 등급 가중치로
+  const pool = k => BALL_RARITY[k].filter(f => META.unlocked.includes(f));
+  const order = ['unique', 'rare', 'uncommon', 'common'];
+  let k = wkey(rar);
+  for (let i = order.indexOf(k); i < order.length; i++) if (pool(order[i]).length) { const p = pool(order[i]); return p[randi(0, p.length - 1)]; }
+  const all = META.unlocked; return all[randi(0, all.length - 1)];
+}
+function rollOne(sym) { // 릴 하나의 보상
+  if (sym === 'ball') return { kind: 'ball', id: rollBall(PINBALL.rarity) };
+  if (sym === 'char') { const locked = HUMAN_IDS.filter(id => !META.chars[id]), own = HUMAN_IDS.filter(id => META.chars[id]); const L = locked.length && rand() < PINBALL.lockedBias ? locked : own; return { kind: 'shard', id: L[randi(0, L.length - 1)] }; }
+  return { kind: 'pb', n: pbReel() };
+}
+function spinJackpot(tutorial) { // 릴 3개 (독립). 튜토리얼은 볼 3개
+  const reels = tutorial ? ['ball', 'ball', 'ball'] : [0, 1, 2].map(() => wkey(PINBALL.reel));
+  let rewards;
+  if (reels[0] === reels[1] && reels[1] === reels[2]) {
+    if (reels[0] === 'ball') rewards = [{ kind: 'ball', id: rollBall(PINBALL.tripleBall), big: true }];
+    else if (reels[0] === 'char') { const locked = HUMAN_IDS.filter(id => !META.chars[id]); rewards = [locked.length ? { kind: 'char', id: locked[randi(0, locked.length - 1)], big: true } : { kind: 'pb', n: PINBALL.tripleCharPb, big: true }]; }
+    else rewards = [{ kind: 'pb', n: pbReel() * PINBALL.tripleMul, big: true }];
+  } else rewards = reels.map(rollOne);
+  return { reels, rewards };
+}
+function payOut(rewards, mult) { // 같은 보상 × 배율을 META에 바로 반영
+  for (const r of rewards) {
+    if (r.kind === 'ball') addBall(r.id, mult);
+    else if (r.kind === 'shard') addShard(r.id, mult);
+    else if (r.kind === 'char') { if (!META.chars[r.id]) { META.chars[r.id] = { lv: 1, shards: 0 }; delete META.shards[r.id]; if (mult > 1) addShard(r.id, mult - 1); } else addShard(r.id, PINBALL.shardsToUnlock * mult); }
+    else META.pinball += r.n * mult;
+  }
+}
 
 // ===================== 6. 스프라이트 (아트 팩 zomxpit-art.js 그대로) =====================
 // ===== 원본 381-723행: 도트 스프라이트 (좀비·보스·사람 캐릭터·볼·보석·배경·탄) =====
@@ -1422,6 +1479,8 @@ function bossDown(e) {
 
 // ===================== 11. update (고정 스텝 120Hz) =====================
 function update(dt) {
+  if (MENU_MODES.includes(S.mode)) return menuUpdate(dt);
+  if (S.mode === 'title') return;
   if (S.mode !== 'play') { if (S.modal) { S.modal.t += dt; if (S.mode === 'freeup' && S.modal.t >= S.modal.spin) finishFreeUp(); } return; }
   if (S.hs > 0) { S.hs -= dt; return; }
   S.t += dt; S.eliteT += dt;
@@ -1708,7 +1767,19 @@ function endBattle(win) {
   if (S.saving) onBattleEnd(S.result);
   sfx(win ? 'win' : 'lose');
 }
-function onBattleEnd(R) {} // 저장 반영은 M3
+function onBattleEnd(R) { // 승패 모두 핀볼 지급, 첫 클리어면 다음 레벨 해금
+  META.pinball += R.pinball;
+  if (R.first) META.best = S.L.id;
+  META.tut.lv1 = true;
+  saveMeta();
+}
+function menuUpdate(dt) {
+  S.t += dt; updateFly(dt);
+  if (S.lvFx > 0) S.lvFx -= dt;
+  if (S.mode === 'lobby') huntUpdate(dt);
+  if (S.mode === 'select' || S.mode === 'machine') { pbUpdate(dt); jpUpdate(dt); }
+  hintUpdate(dt);
+}
 
 // ===================== 이펙트 =====================
 function addFx(f) { if (S.fx.length < 200) S.fx.push(f); }
@@ -1944,7 +2015,7 @@ function renderTitle() {
   uiTxt('좀비 × 핀볼 로그라이크', CX, 500, 32, UI.cream);
   uiHero(CX, 760, 90, humanLook('hero'), 'happy');
   if (Math.floor(performance.now() / 500) % 2) uiTxt('화면을 눌러 시작', CX, 1000, 36);
-  hit({ x: 0, y: 0, w: W, h: H }, () => startLevel(1));
+  hit({ x: 0, y: 0, w: W, h: H }, () => { META.seenTitle = true; saveMeta(); startLevel(1, { tutorial: true }); });
 }
 function renderPause() {
   uiPopup(130, 420, 460, 420);
@@ -1969,6 +2040,7 @@ function render() {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = '#140f0b'; ctx.fillRect(0, 0, W, H);
   if (S.mode === 'title') renderTitle();
+  else if (MENU_MODES.includes(S.mode)) ({ lobby: renderLobby, prep: renderPrep, balls: renderBalls, chars: renderChars, arena: renderArena, select: renderPinball, machine: renderPinball })[S.mode]();
   else {
     renderBattle();
     const o = { pause: renderPause, result: renderResult, levelup: renderLevelUp, fusion: renderFusion, freeup: renderFreeUp, itemcap: renderItemCap }[S.mode];
@@ -1976,13 +2048,327 @@ function render() {
   }
 }
 
+// ===================== 13. UI: 로비 · 출전 선택 · 볼 탭 · 캐릭터 탭 · 핀볼 머신 =====================
+const TABS = [{ id: 'chars', name: '캐릭터', w: 130 }, { id: 'balls', name: '볼', w: 130 }, { id: 'lobby', name: '로비', w: 200 }, { id: 'arena', name: '침략', w: 130 }, { id: 'select', name: '핀볼', w: 130 }];
+const TABY = 1182, TABH = 88;
+const tabX = id => { let x = 0; for (const t of TABS) { if (t.id === id) return x + t.w / 2; x += t.w; } return CX; };
+const MENU_MODES = ['lobby', 'prep', 'balls', 'chars', 'arena', 'select', 'machine'];
+function menuState(mode) { return { mode, t: 0, fly: [], popup: null, hunt: { z: [], b: [], t: 0 }, dLv: META.plv, dXp: META.pxp, hint: null }; }
+function goLobby() { S = menuState('lobby'); }
+function goTab(id) { if (S.cyc) return; sfx('click'); const fly = S.fly || []; S = menuState(id); S.fly = fly; if (id === 'select') resetMS(); }
+function autoRate() { return AUTO.base + AUTO.per * (META.best || 0); }
+function autoGain() { const h = Math.min(AUTO.capH, Math.max(0, (Date.now() - (META.autoT || Date.now())) / 3600000)); return Math.floor(h * autoRate()); }
+const canUpBall = id => { const b = META.balls[id]; return b && b.lv < 10 && b.copies >= b.lv; };
+const canUpChar = id => { const c = META.chars[id]; return c && c.lv < PINBALL.charMaxLv && c.shards >= PINBALL.charUpCost(c.lv); };
+function tabDot(id) {
+  if (id === 'chars') return HUMAN_IDS.some(canUpChar);
+  if (id === 'balls') return Object.keys(META.balls).some(canUpBall) || (META.equip.length < 8 && Object.keys(META.balls).some(f => !META.equip.includes(f)));
+  if (id === 'lobby') return autoGain() >= 1;
+  if (id === 'arena') return (META.best || 0) >= 2 && META.tickets > 0;
+  if (id === 'select') return META.pinball >= 1;
+}
+function drawTopBar() {
+  pxBox(14, 18, 92, 72, '#4b3a90', { shade: null });
+  ctx.beginPath(); ctx.arc(60, 54, 30, 0, TAU); ctx.fillStyle = UI.gold; ctx.fill(); uiLine(UI.ink, 5); uiTxt(String(META.best || 0), 60, 66, 30);
+  uiPill(124, 28, 220, 54, '#2a1f4a'); uiCoin(152, 55, 20); uiTxt(String(META.pinball), 250, 67, 30, UI.gold);
+  pxBox(560, 22, 66, 66, '#4b3a90', { shade: null }); ctx.save(); ctx.translate(593, 55); for (let k = 0; k < 8; k++) { ctx.rotate(Math.PI / 4); ctx.fillStyle = '#e8e2f5'; ctx.fillRect(-5, -22, 10, 10); } ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fillStyle = '#4b3a90'; ctx.fill(); ctx.restore();
+  if (!S.cyc) hit({ x: 548, y: 10, w: 90, h: 90 }, () => openSettings());
+  pxBox(640, 22, 66, 66, '#ff8ac0', { shade: null }); uiHero(673, 58, 24, humanLook(META.sel));
+}
+function drawTabBar() {
+  ctx.fillStyle = '#1e1640'; ctx.fillRect(0, TABY - 6, W, H - TABY + 6);
+  let x = 0;
+  for (const t of TABS) {
+    const on = S.mode === t.id || (t.id === 'select' && S.mode === 'machine') || (t.id === 'lobby' && S.mode === 'prep');
+    pxBox(x + 4, TABY, t.w - 8, TABH - 4, on ? '#ffb43a' : '#4b3a90', { shade: on ? '#e8731a' : null });
+    const cx = x + t.w / 2, cy = TABY + 32;
+    if (t.id === 'chars') uiHero(cx, cy, 20, humanLook(META.sel)); else if (t.id === 'balls') uiBall(cx, cy, 18, ['fire', 'spark']); else if (t.id === 'lobby') uiHouse(cx, cy + 4, 18); else if (t.id === 'arena') uiSword(cx, cy, 18); else uiGift(cx, cy + 6, 16);
+    uiTxt(t.name, cx, TABY + 76, 18);
+    if (tabDot(t.id)) { ctx.beginPath(); ctx.arc(x + t.w - 18, TABY + 12, 9, 0, TAU); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 3); }
+    if (!S.cyc) { const id = t.id; hit({ x, y: TABY, w: t.w, h: TABH }, () => goTab(id)); }
+    x += t.w;
+  }
+}
+// ---------- 보상 아이콘 비행 (포물선 → 도착하면 고리 + 불꽃 6개) ----------
+function flyIcon(k, x, y, tx, ty, T, arrive, data) { S.fly.push({ k, x0: x, y0: y, tx, ty, t: 0, T: T || .7, arrive, data, delay: 0 }); }
+function updateFly(dt) {
+  for (const f of S.fly) {
+    f.t += dt;
+    if (f.t >= f.T && !f.done) { f.done = true; if (f.arrive) f.arrive(); S.fx2 = S.fx2 || []; S.fx2.push({ x: f.tx, y: f.ty, t: 0 }); }
+  }
+  S.fly = S.fly.filter(f => !f.done || f.t < f.T);
+  if (S.fx2) { for (const r of S.fx2) r.t += dt; S.fx2 = S.fx2.filter(r => r.t < .35); }
+}
+function drawFly() {
+  for (const f of S.fly) {
+    if (f.done || f.t < 0) continue;
+    const k = Math.min(1, f.t / f.T), x = f.x0 + (f.tx - f.x0) * k, y = f.y0 + (f.ty - f.y0) * k - Math.sin(k * Math.PI) * 120;
+    if (f.k === 'gem') blit(SPR_GEM, x, y, 2.4); else if (f.k === 'coin') uiCoin(x, y, 14); else if (f.k === 'ball') uiBall(x, y, 20, [f.data]); else if (f.k === 'shard' || f.k === 'char') uiHero(x, y, 18, humanLook(f.data)); else uiStar(x, y, 14, UI.gold);
+  }
+  for (const r of S.fx2 || []) { const a = 1 - r.t / .35; ctx.globalAlpha = a; ctx.beginPath(); ctx.arc(r.x, r.y, 10 + 24 * (1 - a), 0, TAU); ctx.strokeStyle = UI.gold; ctx.lineWidth = 4; ctx.stroke(); for (let i = 0; i < 6; i++) { const an = i * TAU / 6; px(r.x + Math.cos(an) * 30 * (1 - a), r.y + Math.sin(an) * 30 * (1 - a), 6, '#fff6a0'); } ctx.globalAlpha = 1; }
+}
+
+// ---------- 로비 ----------
+function huntUpdate(dt) { // 자동 사냥 장면 (보상 없는 연출)
+  const h = S.hunt; h.t += dt;
+  if (h.z.length < 5 && rand() < dt * 1.5) h.z.push({ x: rand(200, 520), y: 250, walk: rand(2), type: ['knight', 'knight', 'boar', 'shield', 'priest'][randi(0, 4)] });
+  for (const z of h.z) { z.y += 55 * dt; z.walk += dt * 5; }
+  h.fireT = (h.fireT || 0) - dt;
+  if (h.fireT <= 0 && h.z.length) { h.fireT = .45; const z = h.z.reduce((a, b) => b.y > a.y ? b : a); const a = Math.atan2(z.y - 690, z.x - CX); h.b.push({ x: CX, y: 690, vx: Math.cos(a) * 600, vy: Math.sin(a) * 600, fns: [['fire', 'frost', 'split'][randi(0, 2)]] }); h.aim = a; }
+  for (const b of h.b) { b.x += b.vx * dt; b.y += b.vy * dt; for (const z of h.z) if (!z.dead && Math.hypot(z.x - b.x, z.y - b.y) < 28) { z.dead = true; b.dead = true; h.pop = h.pop || []; h.pop.push({ x: z.x, y: z.y, t: 0 }); } if (b.y < 200 || b.y > 760) b.dead = true; }
+  h.z = h.z.filter(z => !z.dead && z.y < 640); h.b = h.b.filter(b => !b.dead);
+  if (h.pop) { for (const p of h.pop) p.t += dt; h.pop = h.pop.filter(p => p.t < .3); }
+}
+function renderLobby() {
+  ctx.drawImage(RUINS, 0, 0, W, H);
+  drawTopBar();
+  const h = S.hunt;
+  ctx.save(); uiPath(70, 200, 580, 560, 24); ctx.fillStyle = 'rgba(20,8,40,.35)'; ctx.fill(); uiLine(UI.ink, 6); ctx.clip();
+  for (const z of h.z) spr(SPR[z.type + (Math.floor(z.walk) % 2 ? '1' : '')], z.x, z.y, 3);
+  for (const b of h.b) drawBall(b.x, b.y, 10, b.fns, h.t * 10);
+  for (const p of h.pop || []) boomFx(p.x, p.y, 30, 1 - p.t / .3, '#8ab84a');
+  spr(heroSpr(META.sel, h.aim || -Math.PI / 2, 0), CX, 690, 3);
+  ctx.restore();
+  uiTxt('자동 사냥', CX, 248, 26, UI.cream);
+  const g = autoGain();
+  btn({ x: 230, y: 780, w: 260, h: 92 }, g ? '받기 +' + g : '모으는 중…', 'green', 30, () => { if (!g) return; META.pinball += g; META.autoT = Date.now(); saveMeta(); sfx('coin'); for (let i = 0; i < Math.min(12, g); i++) flyIcon('coin', CX + rand(-60, 60), 820, 152, 55, .6 + i * .04); }, !g);
+  const N = Math.min(10, (META.best || 0) + 1), L = LEVELS[N - 1];
+  btn({ x: 110, y: 930, w: 500, h: 140 }, '', 'orange', 30, () => openPrep(N));
+  uiTxt('레벨 ' + N, CX, 1000, 52); uiTxt(L.name, CX, 1046, 24, UI.cream);
+  drawTabBar(); drawFly(); drawHint();
+}
+// ---------- 출전 볼 선택 ----------
+function openPrep(id, raid) { sfx('click'); S = menuState('prep'); S.level = id; S.raid = raid; const eq = META.equip; S.picks = (META.picks || []).filter(f => eq.includes(f)).slice(0, 2); for (const f of eq) if (S.picks.length < 2 && !S.picks.includes(f)) S.picks.push(f); }
+function renderPrep() {
+  ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
+  uiRibbon(CX, 150, 360, S.raid ? '침략 출전' : '레벨 ' + S.level + ' 출전', 'red', 36);
+  uiPanel(60, 240, 600, 200); const ch = CHAR[META.sel];
+  uiHero(170, 340, 60, humanLook(META.sel), 'happy');
+  uiLabel(ch.name, 260, 300, 32, UI.ink, 'left', 900);
+  uiLabel('시작 볼', 260, 350, 22, '#6a5a8a', 'left', 700);
+  if (ch.ball) { uiBall(290, 395, 24, [ch.ball]); uiLabel(FN[ch.ball].name, 324, 404, 24, UI.ink, 'left', 900); } else uiLabel('장착 볼 중 무작위 2개', 260, 404, 22, UI.ink, 'left', 900);
+  uiTxt('장착 볼 중 2개를 골라요', CX, 500, 26, UI.cream);
+  META.equip.forEach((f, i) => {
+    const x = 60 + (i % 4) * 152, y = 530 + Math.floor(i / 4) * 170, on = S.picks.includes(f);
+    pxBox(x, y, 140, 156, on ? '#ffe45a' : UI.cream, { drop: true });
+    uiBall(x + 70, y + 64, 36, [f]); uiLabel(FN[f].name, x + 70, y + 136, 22, UI.ink, 'center', 900);
+    if (on) uiCheck(x + 122, y + 18, 16);
+    hit({ x, y, w: 140, h: 156 }, () => { sfx('click'); if (on) S.picks = S.picks.filter(p => p !== f); else { if (S.picks.length >= 2) S.picks.shift(); S.picks.push(f); } });
+  });
+  btn({ x: 60, y: 1010, w: 200, h: 100 }, '뒤로', 'gray', 30, () => goTab(S.raid ? 'arena' : 'lobby'));
+  btn({ x: 290, y: 1000, w: 370, h: 120 }, '출전!', 'green', 44, () => { META.picks = S.picks.slice(); saveMeta(); if (S.raid) startRaid(S.picks); else startLevel(S.level, { picks: S.picks }); });
+}
+// ---------- 볼 탭 ----------
+function renderBalls() {
+  ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
+  uiTxt('장착 ' + META.equip.length + '/8', 90, 140, 24, UI.cream);
+  for (let i = 0; i < 8; i++) { const x = 160 + i * 68, f = META.equip[i]; pxBox(x, 108, 60, 60, '#4b3a90', { shade: null }); if (f) uiBall(x + 30, 138, 20, [f]); }
+  ALL_FNS.forEach((f, i) => {
+    const x = 18 + (i % 5) * 138, y = 190 + Math.floor(i / 5) * 162, b = META.balls[f], un = META.unlocked.includes(f);
+    pxBox(x, y, 130, 152, b ? UI.cream : '#3a2f62', { drop: true });
+    ctx.fillStyle = RCOL[rarityOf(f)]; ctx.fillRect(x + 8, y + 8, 114, 6);
+    if (b) {
+      uiBall(x + 65, y + 66, 34, [f]); uiLabel(FN[f].name, x + 65, y + 124, 20, UI.ink, 'center', 900);
+      uiLabel('Lv' + b.lv, x + 14, y + 34, 18, '#6a5a8a', 'left', 900);
+      const need = b.lv; ctx.fillStyle = '#d8d0e8'; ctx.fillRect(x + 14, y + 134, 102, 8); ctx.fillStyle = canUpBall(f) ? '#4ac84a' : '#3a96f0'; ctx.fillRect(x + 14, y + 134, 102 * Math.min(1, b.copies / need), 8);
+      if (META.equip.includes(f)) uiCheck(x + 110, y + 34, 14);
+      if (canUpBall(f)) { ctx.beginPath(); ctx.arc(x + 118, y + 10, 9, 0, TAU); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 3); }
+      hit({ x, y, w: 130, h: 152 }, () => { sfx('click'); S.popup = { k: 'ball', f }; });
+    } else if (un) { ctx.globalAlpha = .35; uiBall(x + 65, y + 66, 34, [f]); ctx.globalAlpha = 1; uiTxt('?', x + 65, y + 80, 40, '#a49cb8'); uiLabel(FN[f].name, x + 65, y + 124, 20, '#a49cb8', 'center', 900); }
+    else { uiLock(x + 65, y + 70, 26); uiLabel('침략 해금', x + 65, y + 128, 18, '#a49cb8', 'center', 700); }
+  });
+  drawTabBar(); drawFly(); drawHint();
+  if (S.popup) renderBallPopup();
+}
+function renderBallPopup() {
+  const f = S.popup.f, b = META.balls[f], eq = META.equip.includes(f);
+  hit({ x: 0, y: 0, w: W, h: H }, () => { S.popup = null; });
+  uiPopup(70, 300, 580, 640);
+  hit({ x: 70, y: 300, w: 580, h: 640 }, () => {});
+  uiBall(CX, 420, 70, [f], S.t * 2);
+  uiTxt(FN[f].name + ' 볼', CX, 545, 40, UI.gold);
+  uiLabel({ common: '일반', uncommon: '고급', rare: '레어', unique: '유니크' }[rarityOf(f)] + ' · 컬렉션 Lv' + b.lv + ' (피해 +' + (b.lv - 1) * 10 + '%)', CX, 590, 22, RCOL[rarityOf(f)], 'center', 900);
+  uiWrap(FN[f].d(fv(f, 1)), CX, 640, 24, 500, 2, UI.ink, 'center', 700);
+  uiLabel('사본 ' + b.copies + ' / ' + b.lv, CX, 720, 24, '#6a5a8a', 'center', 900);
+  btn({ x: 110, y: 790, w: 240, h: 100 }, eq ? '해제' : '장착', eq ? 'gray' : 'blue', 32, () => { if (eq) { if (META.equip.length <= 1) return; META.equip = META.equip.filter(x => x !== f); } else { if (META.equip.length >= 8) return; META.equip.push(f); } sfx('click'); saveMeta(); }, !eq && META.equip.length >= 8);
+  btn({ x: 370, y: 790, w: 240, h: 100 }, b.lv >= 10 ? '최대' : '강화', 'green', 32, () => { b.copies -= b.lv; b.lv++; sfx('up'); saveMeta(); }, !canUpBall(f));
+}
+// ---------- 캐릭터 탭 ----------
+function renderChars() {
+  ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
+  HUMAN_IDS.forEach((id, i) => {
+    const x = 24 + (i % 2) * 340, y = 110 + Math.floor(i / 2) * 264, c = META.chars[id], ch = CHAR[id], sel = META.sel === id;
+    pxBox(x, y, 332, 252, c ? (sel ? '#ffe45a' : UI.cream) : '#3a2f62', { drop: true });
+    if (c) uiHero(x + 86, y + 120, 54, humanLook(id), sel ? 'happy' : ''); else { ctx.globalAlpha = .3; uiHero(x + 86, y + 120, 54, humanLook(id)); ctx.globalAlpha = 1; uiLock(x + 86, y + 130, 22); }
+    uiLabel(ch.name, x + 168, y + 56, 28, c ? UI.ink : '#a49cb8', 'left', 900);
+    if (c) {
+      uiLabel('Lv' + c.lv + (c.lv >= PINBALL.charMaxLv ? ' (최대)' : ''), x + 168, y + 92, 22, '#6a5a8a', 'left', 900);
+      const need = PINBALL.charUpCost(c.lv); ctx.fillStyle = '#d8d0e8'; ctx.fillRect(x + 168, y + 108, 140, 10); ctx.fillStyle = canUpChar(id) ? '#4ac84a' : '#ff8ac0'; ctx.fillRect(x + 168, y + 108, 140 * Math.min(1, c.shards / need), 10);
+      if (sel) uiLabel('선택됨', x + 168, y + 150, 22, '#d8302a', 'left', 900);
+    } else { const n = META.shards[id] || 0; uiLabel('조각 ' + n + '/10', x + 168, y + 92, 22, '#a49cb8', 'left', 900); ctx.fillStyle = '#2a1f4a'; ctx.fillRect(x + 168, y + 108, 140, 10); ctx.fillStyle = '#ff8ac0'; ctx.fillRect(x + 168, y + 108, 14 * n, 10); }
+    if (ch.ball) { uiBall(x + 182, y + 200, 18, [ch.ball]); uiLabel(FN[ch.ball].name, x + 206, y + 208, 20, c ? UI.ink : '#a49cb8', 'left', 700); }
+    if (canUpChar(id)) { ctx.beginPath(); ctx.arc(x + 318, y + 14, 10, 0, TAU); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 3); }
+    hit({ x, y, w: 332, h: 252 }, () => { sfx('click'); S.popup = { k: 'char', id }; });
+  });
+  drawTabBar(); drawFly(); drawHint();
+  if (S.popup) renderCharPopup();
+}
+function renderCharPopup() {
+  const id = S.popup.id, c = META.chars[id], ch = CHAR[id];
+  hit({ x: 0, y: 0, w: W, h: H }, () => { S.popup = null; });
+  uiPopup(70, 300, 580, 640); hit({ x: 70, y: 300, w: 580, h: 640 }, () => {});
+  uiHero(CX, 450, 90, humanLook(id), c ? 'joy' : 'sad');
+  uiTxt(ch.name, CX, 610, 42, UI.gold);
+  uiWrap(ch.d, CX, 660, 24, 500, 2, UI.ink, 'center', 700);
+  if (c) { uiLabel('Lv' + c.lv + ' · 공격 +' + Math.round(PINBALL.charUp.atk * (c.lv - 1) * 100) + '% · HP +' + Math.round(PINBALL.charUp.hp * (c.lv - 1) * 100) + '%', CX, 730, 22, '#6a5a8a', 'center', 900);
+    uiLabel('조각 ' + c.shards + ' / ' + PINBALL.charUpCost(c.lv), CX, 765, 22, '#6a5a8a', 'center', 900);
+    btn({ x: 110, y: 800, w: 240, h: 100 }, META.sel === id ? '선택됨' : '선택', 'blue', 32, () => { META.sel = id; sfx('click'); saveMeta(); }, META.sel === id);
+    btn({ x: 370, y: 800, w: 240, h: 100 }, c.lv >= PINBALL.charMaxLv ? '최대' : '강화', 'green', 32, () => { c.shards -= PINBALL.charUpCost(c.lv); c.lv++; sfx('up'); saveMeta(); }, !canUpChar(id));
+  } else uiLabel('잭팟 캐릭터 조각 10개로 해금 (' + (META.shards[id] || 0) + '/10)', CX, 760, 24, '#6a5a8a', 'center', 900);
+}
+
+// ---------- 핀볼 머신 ----------
+const PB_SC = 1.06, PB_Y = 122;
+const pbScr = (x, y) => ({ x: CX + (x - CX) * PB_SC, y: y * PB_SC + PB_Y });
+function resetMS() { MS = { counts: [0, 0, 0, 0, 0], fx: [], balls: [], mult: (MS && MS.mult) || 1, flash: [0, 0, 0, 0, 0], pushT: 0 }; if (!multOk(MS.mult)) MS.mult = 1; }
+const multOk = n => n === 1 || META.pinball >= PINBALL.unlock[n];
+function nextMult() { const C = PINBALL.counts; let i = C.indexOf(MS.mult); for (let k = 1; k <= C.length; k++) { const n = C[(i + k) % C.length]; if (multOk(n)) { MS.mult = n; return; } } }
+function pbPath(i) { // 결과 칸으로 가는 연출 경로: 발사 레인 → 아치 → 핀 사이 지그재그 → 칸
+  const tx = MB.x0 + (i + .5) * SLOT_W, P = [[632, 945, 1100], [632, 560, 1100]];
+  const aEnd = Math.PI * (1.15 + rand(0, .6));
+  for (let a = TAU - .1; a >= aEnd; a -= .14) P.push([ARC.cx + Math.cos(a) * (ARC.R - 16), ARC.cy + Math.sin(a) * (ARC.R - 16), 900]);
+  let x = P[P.length - 1][0];
+  const y0 = P[P.length - 1][1], rows = []; for (let y = 380; y < 840; y += 50) if (y > y0 + 20) rows.push(y);
+  rows.forEach((y, k) => { const f = (k + 1) / rows.length; x += (tx - x) * f * .55 + (k % 2 ? 1 : -1) * rand(10, 34) * (1 - f); x = Math.max(92, Math.min(588, x)); P.push([x, y, 330]); });
+  P.push([tx, 880, 330], [tx, 915, 260]);
+  return { P, k: 0, x: P[0][0], y: P[0][1], slot: i, tr: [] };
+}
+function pbFire() {
+  const c = S.cyc, mult = MS.mult;
+  if (META.pinball < mult || c.fired >= PINBALL.cycleBalls) return false;
+  META.pinball -= mult;
+  const gi = PINBALL.slots.findIndex(s => s.id === 'gift');
+  const i = META.firstCycle && c.fired === 0 ? gi : rollSlot(); // 튜토리얼: 첫 사이클 첫 공은 잭팟 확정
+  const sl = PINBALL.slots[i];
+  if (sl.id === 'xp') addPxp(sl.v * mult);
+  else { if (!c.jp) c.jp = spinJackpot(META.firstCycle); payOut(c.jp.rewards, mult); c.gifts++; }
+  c.fired++; saveMeta(); // 결과는 발사 순간 확정·저장, 공 움직임은 연출
+  MS.balls.push(pbPath(i)); MS.pushT = .1; sfx('launch');
+  return true;
+}
+function pbUpdate(dt) {
+  MS.pushT = Math.max(0, MS.pushT - dt);
+  for (let i = 0; i < 5; i++) MS.flash[i] = Math.max(0, MS.flash[i] - dt);
+  for (const b of BUMPERS) b.hit = Math.max(0, b.hit - dt);
+  for (const f of MS.fx) f.t -= dt; MS.fx = MS.fx.filter(f => f.t > 0);
+  const c = S.cyc;
+  if (c) {
+    c.fireT -= dt;
+    if (IN.push && c.fireT <= 0 && !c.stopped) { if (pbFire()) c.fireT = PINBALL.dropEvery; else c.stopped = true; }
+    if (!IN.push && c.fired > 0) c.stopped = true;
+  }
+  for (const b of MS.balls) {
+    let mv = 0;
+    while (b.k < b.P.length - 1) {
+      const [x1, y1] = b.P[b.k + 1], spd = b.P[b.k + 1][2], d = Math.hypot(x1 - b.x, y1 - b.y), step = spd * dt - mv;
+      if (step <= 0) break;
+      if (d <= step) { mv += d; b.x = x1; b.y = y1; b.k++; if (b.y > 370) sfx('click'); continue; }
+      b.x += (x1 - b.x) / d * step; b.y += (y1 - b.y) / d * step; mv += step; break;
+    }
+    b.tr.push(b.x, b.y); if (b.tr.length > 16) b.tr.splice(0, 2);
+    for (const B of BUMPERS) if (Math.hypot(B.x - b.x, B.y - b.y) < B.r + 14) B.hit = .15;
+    if (b.k >= b.P.length - 1 && !b.done) { b.done = true; pbLand(b.slot); }
+  }
+  MS.balls = MS.balls.filter(b => !b.done);
+  if (c && c.stopped && !MS.balls.length && !S.fly.length && !c.jpDone) {
+    if (c.gifts && !S.jp) { S.jp = { t: 0, ...c.jp, mult: MS.mult, gifts: c.gifts }; S.mode = 'machine'; sfx('gift'); }
+    else if (!c.gifts) endCycle();
+  }
+}
+function pbLand(i) {
+  const sl = PINBALL.slots[i], m = MS.mult, s = pbScr(MB.x0 + (i + .5) * SLOT_W, MB.slotY + 40);
+  MS.counts[i]++; MS.flash[i] = .35;
+  if (sl.id === 'xp') { // 경험치 1점 = 아이콘 1개가 상단 경험치 바로 날아감
+    const n = sl.v * m, shown = Math.min(n, 30), per = n / shown;
+    for (let k = 0; k < shown; k++) { S.fly.push({ k: 'gem', x0: s.x + rand(-20, 20), y0: s.y, tx: 230 + rand(-30, 30), ty: 150, t: -k * .03, T: .6, arrive: () => pbXp(per) }); }
+    sfx('coin');
+  } else { MS.fx.push({ k: 'txt', s: '잭팟!', x: MB.x0 + (i + .5) * SLOT_W, y: MB.slotY - 40, c: '#ff6ab0', t: 1, T: 1 }); sfx('gift'); buzz(40); }
+}
+function pbXp(v) { S.dXp += v; while (S.dXp >= PLV.need(S.dLv)) { S.dXp -= PLV.need(S.dLv); S.dLv++; S.lvFx = 1.2; sfx('lvup'); } }
+function endCycle() { META.firstCycle = false; saveMeta(); S.cyc = null; S.jp = null; S.mode = 'select'; MS.counts = [0, 0, 0, 0, 0]; S.dLv = META.plv; S.dXp = META.pxp; }
+function jpTimes(j) { const s1 = .7 + .6, s2 = s1 + .4, s3 = s2 + .4 + (j.reels[0] === j.reels[1] ? .8 : 0); return [s1, s2, s3]; }
+function jpUpdate(dt) {
+  const j = S.jp; if (!j) return; j.t += dt;
+  const [, , s3] = jpTimes(j);
+  if (j.t > s3 + 1.1 && !j.flown) { // 보상 카드가 목적지로 날아감
+    j.flown = true;
+    j.rewards.forEach((r, k) => { const x = CX + (k - (j.rewards.length - 1) / 2) * 190, y = 760, n = r.kind === 'pb' ? r.n * j.mult * j.gifts : j.mult * j.gifts;
+      if (r.kind === 'pb') for (let i = 0; i < Math.min(10, n); i++) flyIcon('coin', x, y, 152, 55, .6 + i * .04);
+      else if (r.kind === 'ball') flyIcon('ball', x, y, tabX('balls'), TABY + 30, .8, null, r.id);
+      else flyIcon('char', x, y, tabX('chars'), TABY + 30, .8, null, r.id); });
+    sfx('rise');
+  }
+  if (j.flown && !S.fly.length) { S.cyc.jpDone = true; endCycle(); }
+}
+function rewardLabel(r, n) {
+  if (r.kind === 'pb') return '핀볼 +' + r.n * n;
+  if (r.kind === 'ball') return FN[r.id].name + ' 볼' + (n > 1 ? ' ×' + n : '');
+  if (r.kind === 'char') return CHAR[r.id].name + ' 해금!';
+  return CHAR[r.id].name + ' 조각' + (n > 1 ? ' ×' + n : '');
+}
+function renderPinball() {
+  ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
+  // 플레이어 레벨·경험치 바 (아이콘이 도착할 때마다 참)
+  ctx.beginPath(); ctx.arc(66, 152, 36, 0, TAU); ctx.fillStyle = '#6ac0ff'; ctx.fill(); uiLine(UI.ink, 5); uiTxt(String(S.dLv), 66, 164, 30);
+  uiLabel('플레이어 레벨', 116, 128, 20, UI.cream, 'left', 900);
+  uiBar(112, 140, 250, 26, S.dXp / PLV.need(S.dLv), ['#c8f0ff', '#9fe0ff']);
+  if (S.lvFx > 0) uiTxt('LEVEL UP!', 236, 210, 34 + 6 * Math.sin(S.t * 20), UI.gold);
+  // 배율 · PUSH
+  const busy = !!S.cyc;
+  btn({ x: 390, y: 112, w: 130, h: 96 }, '×' + MS.mult, 'purple', 36, () => { nextMult(); sfx('click'); }, busy);
+  const canPush = META.pinball >= MS.mult;
+  uiBtn({ x: 534, y: 104, w: 170, h: 112 }, 'PUSH', IN.push ? 'yellow' : 'red', 40, !canPush && !busy);
+  if (canPush || busy) hit({ x: 534, y: 104, w: 170, h: 112 }, () => { IN.push = true; if (!S.cyc) { S.cyc = { fired: 0, gifts: 0, fireT: 0, jp: null }; S.mode = 'machine'; } });
+  ctx.save(); ctx.translate(CX, PB_Y); ctx.scale(PB_SC, PB_SC); ctx.translate(-CX, 0); drawCabinet(); ctx.restore();
+  if (!canPush && !busy) uiTxt('핀볼이 부족해요 — 전투에서 모아요', CX, 300, 22, UI.cream);
+  drawTabBar(); drawFly();
+  if (S.jp) renderJackpot();
+  drawHint();
+}
+function renderJackpot() {
+  const j = S.jp, t = j.t, [s1, s2, s3] = jpTimes(j), syms = ['ball', 'char', 'pb'];
+  dim(.8);
+  if (t < .7) { const o = t / .7; uiGift(CX, 640 - o * 40, 90 + o * 30); uiTxt('잭팟!', CX, 420, 60, '#ff6ab0'); }
+  else {
+    uiRibbon(CX, 300, 360, '잭팟!', 'pink', 44);
+    pxBox(110, 440, 500, 240, '#d8302a', { drop: true }); pxBox(140, 470, 440, 180, '#ffd23a');
+    [s1, s2, s3].forEach((st, i) => {
+      const x = 210 + i * 150; pxBox(x - 62, 486, 124, 148, '#fff6e0', { shade: null });
+      ctx.save(); ctx.beginPath(); ctx.rect(x - 58, 490, 116, 140); ctx.clip();
+      if (t < st) { const off = (t * 900) % 140; for (let k = -1; k <= 1; k++) uiSymbol(syms[(Math.floor(t * 9) + k + i + 3) % 3], x, 560 + k * 140 + off - 70, 120); if (i === 2 && j.reels[0] === j.reels[1] && t > s2) uiTxt('!!', x, 520, 30, '#ff3a3a'); }
+      else uiSymbol(j.reels[i], x, 560, 120);
+      ctx.restore();
+    });
+    if (t > s3 + .3 && !j.flown) j.rewards.forEach((r, k) => { const x = CX + (k - (j.rewards.length - 1) / 2) * 190, n = j.mult * j.gifts; const pop = Math.min(1, (t - s3 - .3) * 5);
+      ctx.save(); ctx.translate(x, 790); ctx.scale(pop, pop); uiPanel(-85, -90, 170, 200); 
+      if (r.kind === 'pb') uiCoin(0, -20, 34); else if (r.kind === 'ball') uiBall(0, -20, 40, [r.id]); else uiHero(0, -20, 34, humanLook(r.id), 'joy');
+      const f = fitWrap(rewardLabel(r, n), 22, 150, 2, 900); f.lines.forEach((l, i) => uiLabel(l, 0, 50 + i * f.size * 1.2, f.size, r.big ? '#d8302a' : UI.ink, 'center', 900)); ctx.restore(); });
+  }
+  if (!j.flown) hit({ x: 0, y: 0, w: W, h: H }, () => { j.t = Math.max(j.t, s3 + .3); }); // 누르면 빨리 넘어감
+}
+
 // ===================== 14. 사운드 · 진동 (M4에서 채움) =====================
 function sfx(name) {}
 function buzz(p) {}
 
 // ===================== 흐름 =====================
-function startLevel(id, o = {}) { reset(id, o); }
-function goLobby() { S = { mode: 'title', t: 0 }; } // M3에서 로비로
+function startLevel(id, o = {}) { if (id === 1 && !META.tut.lv1) o.tutorial = true; if (o.tutorial) o.picks = []; reset(id, o); }
+// M4·M5에서 채움
+function drawHint() {}
+function hintUpdate(dt) {}
+function openSettings() {}
+function startRaid() {}
+function renderArena() { ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar(); uiTxt('침략 준비 중', CX, 600, 40); drawTabBar(); }
 
 // ===================== 15. 입력 =====================
 function toLogical(ev) { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) * W / r.width, y: (ev.clientY - r.top) * H / r.height }; }
@@ -2015,6 +2401,7 @@ cv.addEventListener('pointermove', ev => {
   if (IN.stickR && IN.stickR.id === ev.pointerId) stickUpdate(IN.stickR, pt);
 });
 function endPointer(ev) {
+  IN.push = false;
   if (IN.stickL && IN.stickL.id === ev.pointerId) IN.stickL = null;
   if (IN.stickR && IN.stickR.id === ev.pointerId) IN.stickR = null; // 놓으면 자동 조준
 }
@@ -2030,12 +2417,15 @@ addEventListener('keydown', ev => {
   if (S.mode === 'itemcap' && m) { const i = 'qwe'.indexOf(d.toLowerCase()); if (i >= 0 && m.opts[i]) pickItem(m.opts[i]); }
   if (S.mode === 'freeup' && m && (/^[1-8]$/.test(d) || d === ' ' || d === 'Enter')) { if (m.done && m.t > m.spin + .4) closeModal(); else m.t = m.spin; }
   if (S.mode === 'fusion' && m && (d === ' ' || d === 'Enter')) { if (m.t > 2.4) closeModal(); else m.t = 2.4; }
+  if ((S.mode === 'select' || S.mode === 'machine') && ev.code === 'Space' && !S.jp && (S.cyc || META.pinball >= MS.mult)) { IN.push = true; if (!S.cyc) { S.cyc = { fired: 0, gifts: 0, fireT: 0, jp: null }; S.mode = 'machine'; } }
   if (ev.code.startsWith('Arrow') || ev.code === 'Space') ev.preventDefault();
 });
-addEventListener('keyup', ev => IN.keys.delete(ev.code));
+addEventListener('keyup', ev => { IN.keys.delete(ev.code); if (ev.code === 'Space') IN.push = false; });
 addEventListener('blur', () => IN.keys.clear());
 
 // ===================== 16. 메인 루프 =====================
+loadMeta();
+S = META.seenTitle ? menuState('lobby') : { mode: 'title', t: 0 };
 let acc = 0, last = performance.now();
 function frame(now) {
   let dt = (now - last) / 1000; last = now;
@@ -2050,6 +2440,7 @@ requestAnimationFrame(frame);
 // ===================== 17. 테스트 API =====================
 window.game = {
   get state() { return S; }, get S() { return S; }, get META() { return META; }, IN, RULE, LEVELS, ENEMY, BOSS, FN, EVO, ITEM,
+  get MS() { return MS; }, loadMeta, saveMeta, freshMeta, setMeta(m) { META = m; }, goTab, goLobby, openPrep, pbFire, spinJackpot, payOut, rollSlot, addPxp, baseStats, autoGain,
   start: startLevel, reset, spawn, spawnBoss, launch, update, newBall, makeCards, pickCard, gainXp, recalc, openFreeUp, openItemCap, pickItem, closeModal, finishFreeUp,
   step(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   seed(s) { RNG = mulberry32(s >>> 0); },
