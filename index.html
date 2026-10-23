@@ -2526,7 +2526,6 @@ function renderPrep() {
 
 // ---------- 볼 탭 (B.9) ----------
 const RORDER = ['common', 'uncommon', 'rare', 'unique'];
-const BGRID = { top: 530, bot: 880, w: 124, h: 146, px: 132, py: 154 }; // 도감 카드 칸 (이전 시안 카드 모양, 사용자 지시)
 const byRarity = (a, b) => RORDER.indexOf(rarityOf(a)) - RORDER.indexOf(rarityOf(b)) || FN[a].name.localeCompare(FN[b].name, 'ko'); // 7.2: 희귀도 낮은 순, 같으면 가나다순
 const codexOrder = () => ALL_FNS.slice().sort(byRarity);
 function renderBalls() {
@@ -2543,28 +2542,17 @@ function renderBalls() {
   const owned = ALL_FNS.filter(f => META.balls[f]).length;
   uiTxt('볼 도감 ' + owned + ' / 30', 32, 512, 26, '#fff', 'left');
   RORDER.forEach((r, i) => { const x = 330 + 92 * i; ctx.beginPath(); ctx.arc(x, 503, 9, 0, TAU); ctx.fillStyle = RCOL[r]; ctx.fill(); uiLine(UI.ink, 2); uiLabel(RNAME[r], x + 14, 510, 17, '#fff', 'left', 700); });
-  // 도감: 이전 시안의 큰 카드 5열 (희귀도 낮은 순 → 높은 순), 칸 안에서 위아래로 끌어 스크롤
-  const G = BGRID, rows = Math.ceil(ALL_FNS.length / 5), maxS = Math.max(0, rows * G.py - 8 - (G.bot - G.top));
-  S.bscroll = Math.max(0, Math.min(maxS, S.bscroll || 0));
-  ctx.save(); ctx.beginPath(); ctx.rect(0, G.top, W, G.bot - G.top); ctx.clip();
-  codexOrder().forEach((f, i) => {
-    const x = 30 + (i % 5) * G.px, y = G.top + Math.floor(i / 5) * G.py - S.bscroll, b = META.balls[f], un = META.unlocked.includes(f), sel = S.sel === f, cx = x + G.w / 2;
-    if (y + G.h < G.top || y > G.bot) return;
-    pxBox(x, y, G.w, G.h, b ? (sel ? '#fff0a8' : UI.cream) : '#3a2f62', { drop: true, u: sel ? 5 : PXU });
-    ctx.fillStyle = RCOL[rarityOf(f)]; ctx.fillRect(x + 8, y + 8, G.w - 16, 6);
+  codexOrder().forEach((f, i) => { // B.9.2 10열 칸. 잠금 표시는 이전 시안(어두운 칸 + 자물쇠 + "침략 해금", 해금만 됐으면 흐린 볼 + "?") (사용자 지시)
+    const x = 30 + 66.4 * (i % 10), y = 528 + 118 * Math.floor(i / 10), cx = x + 31, b = META.balls[f], un = META.unlocked.includes(f), sel = S.sel === f;
+    uiPath(x, y, 62, 108, 12); ctx.fillStyle = b ? (sel ? '#fff0a8' : UI.cream) : sel ? '#4e3e88' : '#3a2f62'; ctx.fill(); uiLine(RCOL[rarityOf(f)], sel ? 8 : 5);
     if (b) {
-      uiBall(cx, y + 64, 32, [f]); fitLabel(FN[f].name, cx, y + 120, 20, G.w - 12, UI.ink, 'center', 900, 13);
-      uiLabel('Lv' + b.lv, x + 12, y + 34, 18, '#6a5a8a', 'left', 900);
-      ctx.fillStyle = '#d8d0e8'; ctx.fillRect(x + 12, y + 130, G.w - 24, 8); ctx.fillStyle = canUpBall(f) ? '#4ac84a' : '#3a96f0'; ctx.fillRect(x + 12, y + 130, (G.w - 24) * Math.min(1, b.copies / b.lv), 8);
-      if (META.equip.includes(f)) uiCheck(x + G.w - 18, y + 34, 14);
-      if (canUpBall(f)) { ctx.beginPath(); ctx.arc(x + G.w - 10, y + 10, 9, 0, TAU); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 3); }
-    } else if (un) { ctx.globalAlpha = .35; uiBall(cx, y + 64, 32, [f]); ctx.globalAlpha = 1; uiTxt('?', cx, y + 78, 40, '#a49cb8'); fitLabel(FN[f].name, cx, y + 120, 20, G.w - 12, '#a49cb8', 'center', 900, 13); }
-    else { uiLock(cx, y + 68, 24); uiLabel('침략 해금', cx, y + 124, 17, '#a49cb8', 'center', 700); }
-    const hy = Math.max(y, G.top), hh = Math.min(y + G.h, G.bot) - hy;
-    if (hh > 0) hit({ x, y: hy, w: G.w, h: hh }, () => { if (!S.dragged) { S.sel = f; sfx('click'); } });
+      uiBall(cx, y + 46, 22, [f]); fitLabel(FN[f].name, cx, y + 96, 15, 58, UI.ink, 'center', 900, 11);
+      if (META.equip.includes(f)) uiCheck(x + 50, y + 14, 10);
+      if (canUpBall(f)) { ctx.beginPath(); ctx.arc(x + 13, y + 14, 9, 0, TAU); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 2); }
+    } else if (un) { ctx.globalAlpha = .35; uiBall(cx, y + 46, 22, [f]); ctx.globalAlpha = 1; uiTxt('?', cx, y + 56, 28, '#a49cb8'); fitLabel(FN[f].name, cx, y + 96, 15, 58, '#a49cb8', 'center', 900, 11); }
+    else { uiLock(cx, y + 46, 14); fitLabel('침략 해금', cx, y + 96, 13, 58, '#a49cb8', 'center', 700, 10); }
+    hit({ x, y, w: 62, h: 108 }, () => { S.sel = f; sfx('click'); });
   });
-  ctx.restore();
-  if (maxS) { const th = (G.bot - G.top) * (G.bot - G.top) / (rows * G.py); ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(700, G.top, 6, G.bot - G.top); ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillRect(700, G.top + S.bscroll / maxS * (G.bot - G.top - th), 6, th); }
   // B.9.3 상세 패널
   uiPanel(30, 890, 660, 270);
   const f = S.sel;
@@ -3299,7 +3287,6 @@ cv.addEventListener('pointerdown', ev => {
   if (ev.pointerType === 'mouse') { IN.mouse = pt; IN.mouseHeld = true; }
   hintTapped();
   if (S.mode === 'arena' && !S.popup && pt.y > ARENA.top && pt.y < ARENA.bot) { S.adrag = { id: ev.pointerId, y0: pt.y, s0: S.ascroll || 0, pt }; S.dragged = false; return; }
-  if (S.mode === 'balls' && !S.popup && pt.y > BGRID.top && pt.y < BGRID.bot) { S.adrag = { id: ev.pointerId, y0: pt.y, s0: S.bscroll || 0, pt, key: 'bscroll' }; S.dragged = false; return; }
   if (hitBtn(pt)) return;
   if (S.mode !== 'play') return;
   const mk = kind => { const st = { id: ev.pointerId, kind, ox: pt.x, oy: pt.y, cx: pt.x, cy: pt.y, v: null, a: null }; try { cv.setPointerCapture(ev.pointerId); } catch (e) {} return st; };
@@ -3331,7 +3318,7 @@ function endPointer(ev) {
 cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
 addEventListener('contextmenu', e => e.preventDefault());
-cv.addEventListener('wheel', ev => { if (S.mode === 'arena') { S.ascroll = (S.ascroll || 0) + ev.deltaY; ev.preventDefault(); } else if (S.mode === 'balls') { S.bscroll = (S.bscroll || 0) + ev.deltaY; ev.preventDefault(); } }, { passive: false });
+cv.addEventListener('wheel', ev => { if (S.mode === 'arena') { S.ascroll = (S.ascroll || 0) + ev.deltaY; ev.preventDefault(); } }, { passive: false });
 addEventListener('keydown', ev => {
   IN.keys.add(ev.code); audioInit();
   if (ev.code === 'Escape') { if (S.mode === 'settings') closeSettings(); else if (S.mode !== 'title' && S.mode !== 'result') openSettings(); return; }
