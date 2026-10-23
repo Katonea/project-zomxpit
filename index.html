@@ -194,17 +194,18 @@ const ITEM = {
 };
 const ITEM_BASE = Object.keys(ITEM).filter(k => !ITEM[k].evo);
 const FORMS = { gap: { x: 44, y: 62 }, row: { rows: 2, n: [5, 9] }, block: { rows: 4, n: [4, 4] }, wedge: { tri: [1, 2, 3, 4] }, wall: { rows: 3, n: [7, 9] }, horde: {} };
+// hpMul·bossMul·dmgMul은 game.bot 밸런스 KPI(11.2)에 맞춰 조정함. GDD 원래 값과 근거는 NOTES.md
 const LEVELS = [
-  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: .80, bossMul: .35, dmgMul: .60, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
-  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 1.08, bossMul: .52, dmgMul: .75, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
-  { id: 3, name: '저격 옥상', mid: 'mbsnipe', hpMul: 1.21, bossMul: .33, dmgMul: .85, waves: 5, midAfter: 2, boss: 'digger', w: { knight: 3, boar: 1, archer: 1, shield: 1 }, forms: ['row', 'wedge', 'block'] },
-  { id: 4, name: '바리케이드', mid: 'mbflame', hpMul: 1.58, bossMul: .33, dmgMul: .90, waves: 5, midAfter: 2, boss: 'paladin', w: { knight: 2, shield: 2, archer: 1, boar: 1 }, forms: ['wall', 'block'] },
-  { id: 5, name: '폐병원', mid: 'mbtoxic', hpMul: 1.84, bossMul: 1.60, dmgMul: 1.25, waves: 6, midAfter: 3, boss: 'archmage', w: { knight: 3, archer: 1, shield: 1, priest: 1, boar: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
-  { id: 6, name: '폭탄 공장', mid: 'midboss', hpMul: 2.01, bossMul: 4.85, dmgMul: 1.35, waves: 6, midAfter: 3, boss: 'butcher', w: { knight: 3, bomber: 2, boar: 1, archer: 1 }, forms: ['wedge', 'row'] },
-  { id: 7, name: '검문소', mid: 'mbdash', hpMul: 2.18, bossMul: 3.85, dmgMul: 1.40, waves: 6, midAfter: 3, boss: 'captain', w: { knight: 2, archer: 2, shield: 1, priest: 1, boar: 1 }, forms: ['wall', 'row'] },
-  { id: 8, name: '진압 방벽', mid: 'mbsnipe', hpMul: 2.58, bossMul: 1.93, dmgMul: 1.45, waves: 6, midAfter: 3, boss: 'digger', w: { shield: 2, knight: 2, bomber: 1, priest: 1, boar: 1 }, forms: ['block', 'wall'] },
-  { id: 9, name: '총공세', mid: 'mbflame', hpMul: 2.91, bossMul: 1.70, dmgMul: 1.50, waves: 6, midAfter: 3, boss: 'paladin', w: { boar: 2, knight: 3, archer: 2, shield: 1, priest: 1, bomber: 2 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
-  { id: 10, name: '정유소', mid: 'mbtoxic', hpMul: 2.30, bossMul: .70, dmgMul: 1.00, waves: 7, midAfter: 3, boss: 'archmage', w: { boar: 2, knight: 3, archer: 1, shield: 1, priest: 1, bomber: 1, mage: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: 0.80, bossMul: 1.50, dmgMul: 0.60, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
+  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 0.70, bossMul: 1.00, dmgMul: 0.30, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
+  { id: 3, name: '저격 옥상', mid: 'mbsnipe', hpMul: 0.90, bossMul: 0.70, dmgMul: 0.30, waves: 5, midAfter: 2, boss: 'digger', w: { knight: 3, boar: 1, archer: 1, shield: 1 }, forms: ['row', 'wedge', 'block'] },
+  { id: 4, name: '바리케이드', mid: 'mbflame', hpMul: 0.95, bossMul: 0.60, dmgMul: 0.18, waves: 5, midAfter: 2, boss: 'paladin', w: { knight: 2, shield: 2, archer: 1, boar: 1 }, forms: ['wall', 'block'] },
+  { id: 5, name: '폐병원', mid: 'mbtoxic', hpMul: 1.40, bossMul: 2.60, dmgMul: 0.30, waves: 6, midAfter: 3, boss: 'archmage', w: { knight: 3, archer: 1, shield: 1, priest: 1, boar: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 6, name: '폭탄 공장', mid: 'midboss', hpMul: 2.01, bossMul: 8.10, dmgMul: 1.00, waves: 6, midAfter: 3, boss: 'butcher', w: { knight: 3, bomber: 2, boar: 1, archer: 1 }, forms: ['wedge', 'row'] },
+  { id: 7, name: '검문소', mid: 'mbdash', hpMul: 1.50, bossMul: 4.60, dmgMul: 0.30, waves: 6, midAfter: 3, boss: 'captain', w: { knight: 2, archer: 2, shield: 1, priest: 1, boar: 1 }, forms: ['wall', 'row'] },
+  { id: 8, name: '진압 방벽', mid: 'mbsnipe', hpMul: 1.90, bossMul: 2.80, dmgMul: 0.27, waves: 6, midAfter: 3, boss: 'digger', w: { shield: 2, knight: 2, bomber: 1, priest: 1, boar: 1 }, forms: ['block', 'wall'] },
+  { id: 9, name: '총공세', mid: 'mbflame', hpMul: 2.10, bossMul: 1.20, dmgMul: 0.35, waves: 6, midAfter: 3, boss: 'paladin', w: { boar: 2, knight: 3, archer: 2, shield: 1, priest: 1, bomber: 2 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 10, name: '정유소', mid: 'mbtoxic', hpMul: 2.00, bossMul: 3.30, dmgMul: 0.70, waves: 7, midAfter: 3, boss: 'archmage', w: { boar: 2, knight: 3, archer: 1, shield: 1, priest: 1, bomber: 1, mage: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
 ];
 
 // ===================== 4. 저장 (META) =====================
@@ -2067,7 +2068,7 @@ const canUpBall = id => { const b = META.balls[id]; return b && b.lv < 10 && b.c
 const canUpChar = id => { const c = META.chars[id]; return c && c.lv < PINBALL.charMaxLv && c.shards >= PINBALL.charUpCost(c.lv); };
 function tabDot(id) {
   if (id === 'chars') return HUMAN_IDS.some(canUpChar);
-  if (id === 'balls') return Object.keys(META.balls).some(canUpBall) || (META.equip.length < 8 && Object.keys(META.balls).some(f => !META.equip.includes(f)));
+  if (id === 'balls') return Object.keys(META.balls).some(canUpBall) || (META.equip.length < 8 && newBallOwned());
   if (id === 'lobby') return autoGain() >= 1;
   if (id === 'arena') return (META.best || 0) >= 2 && META.tickets > 0;
   if (id === 'select') return META.pinball >= 1;
@@ -2648,6 +2649,75 @@ function renderArena() {
   drawTabBar(); drawFly(); drawHint();
 }
 
+// ===================== 검증 도구: selfTest · bot =====================
+// 봇: 자동 조준 + 회피 + 줍기. 카드는 진화 > 융합 > 새 볼 > 낮은 레벨 강화
+function botAI() {
+  const p = S.p; let mx = 0, my = 0;
+  for (const e of S.enemies) {
+    if (e.y < TOP - 10) continue;
+    const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1, R = 120 + e.r + (e.boss ? 70 : 0) + (e.cs === 'tele' || e.cs === 'dash' ? 80 : 0);
+    if (d < R) { const w = (R - d) / R; mx += dx / d * w * 3; my += dy / d * w * 3; }
+  }
+  for (const s of S.shots) { const dx = p.x - s.x, dy = p.y - s.y, d = Math.hypot(dx, dy) || 1; if (d < 110 && (s.vx * dx + s.vy * dy) > 0) { mx += -s.vy / 300 * Math.sign(s.vx * dy - s.vy * dx || 1) * 2; my += s.vx / 300 * Math.sign(s.vx * dy - s.vy * dx || 1) * 2; } }
+  for (const h of S.haz) {
+    if (h.k === 'drop' && !h.done) { const dx = p.x - h.x, dy = p.y - h.y, d = Math.hypot(dx, dy) || 1; if (d < h.r + 50) { mx += dx / d * 3; my += dy / d * 3; } }
+    if (h.k === 'flame' && h.t < h.tele + h.dur) { const dx = p.x - h.x, dy = p.y - h.y, c = Math.cos(h.a), s = Math.sin(h.a), along = dx * c + dy * s, across = -dx * s + dy * c; if (along > -20 && along < h.len && Math.abs(across) < h.wid / 2 + 50) { const sg = across >= 0 ? 1 : -1; mx += -s * sg * 3; my += c * sg * 3; } }
+  }
+  const cap = S.caps[0]; if (cap) { const dx = cap.x - p.x, dy = cap.y - p.y, d = Math.hypot(dx, dy) || 1; mx += dx / d * 1.2; my += dy / d * 1.2; }
+  else { const g = S.gems.filter(g => g.y > p.y - 260).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0]; if (g) { const dx = g.x - p.x, dy = g.y - p.y, d = Math.hypot(dx, dy) || 1; mx += dx / d * .8; my += dy / d * .8; } }
+  mx += (CX - p.x) / 220; my += (BOT - 120 - p.y) / 160;
+  const l = Math.hypot(mx, my); IN.bot = { move: l > .15 ? { x: mx / l, y: my / l } : { x: 0, y: 0 }, aim: null };
+}
+function botModal() {
+  const m = S.modal;
+  if (S.mode === 'levelup') { const c = m.cards.find(c => c.k === 'evo') || m.cards.find(c => c.k === 'fuse') || m.cards.find(c => c.k === 'new') || m.cards.slice().sort((a, b) => a.ball.lv - b.ball.lv)[0]; pickCard(c); }
+  else if (S.mode === 'fusion') closeModal();
+  else if (S.mode === 'freeup') { finishFreeUp(); closeModal(); }
+  else if (S.mode === 'itemcap') pickItem(m.opts.find(o => o.evo) || m.opts.find(o => hasItem(o.id)) || m.opts[0]);
+  else if (S.mode === 'verdict') raidSettle('spare');
+  else if (S.mode === 'match') S.mode = 'play';
+  else if (S.mode === 'pause' || S.mode === 'settings') S.mode = 'play';
+}
+// game.bot(seed, level, {plv, ballLv, picks, char}) → {win, time, hp, bossTime}. 실제 저장은 건드리지 않음 (saving=false)
+function bot(seed, level, o = {}) {
+  const keep = { S, META, RNG, SAVING, bot: IN.bot };
+  try {
+    const m = freshMeta(); m.plv = o.plv || 1; m.best = level - 1; m.sel = o.char || 'hero'; m.tut = { lv1: true };
+    if (!m.chars[m.sel]) m.chars[m.sel] = { lv: 1, shards: 0 };
+    if (o.ballLv) for (const f in m.balls) m.balls[f].lv = o.ballLv;
+    META = m; SAVING = false; RNG = mulberry32(seed >>> 0);
+    reset(level, { picks: o.picks || META.equip.slice(0, 2), saving: false });
+    let bossStart = null;
+    for (let i = 0; S.mode !== 'result' && S.t < (o.maxT || 480) && i < 2e6; i++) {
+      if (S.mode !== 'play') { botModal(); continue; }
+      if (i % 4 === 0) botAI();
+      update(STEP);
+      if (S.phase === 'boss' && bossStart === null) bossStart = S.t;
+    }
+    const kills = S.kills;
+    return { win: !!(S.result && S.result.win), time: +S.t.toFixed(1), hp: Math.round(Math.max(0, S.p.hp)), bossTime: bossStart !== null && S.result && S.result.win ? +(S.t - bossStart - 2.9).toFixed(1) : null, kills, lv: S.lv };
+  } finally { S = keep.S; META = keep.META; RNG = keep.RNG; SAVING = keep.SAVING; IN.bot = keep.bot; }
+}
+function selfTest() {
+  const keep = { S, META, RNG, SAVING }, R = [];
+  const T = (name, fn) => { let ok = false, info = ''; try { const r = fn(); ok = r === true || (r && r.ok); info = r && r.info || ''; } catch (e) { info = e.message; } R.push({ name, ok, info }); console.log((ok ? 'PASS' : 'FAIL') + ' · ' + name + (info ? ' — ' + info : '')); };
+  try {
+    META = freshMeta(); SAVING = false; RNG = mulberry32(12345);
+    T('회수: 나간 칸은 회수 전 재발사 안 됨', () => { reset(1, { saving: false }); S.phase = 'test'; const e = spawn('knight', CX, 200); e.hp = e.maxHp = 1e9; e.spd = 0; let bad = 0; for (let i = 0; i < 600; i++) { update(STEP); if (S.balls.filter(b => b.slot).length !== S.slots.filter(s => s.out).length) bad++; } return { ok: bad === 0, info: '불일치 ' + bad }; });
+    T('회수: 바닥 공 귀환 · 튕긴 공 몸으로 즉시 회수', () => { reset(1, { saving: false }); S.phase = 'test'; const s0 = S.slots[0]; launch(s0, Math.PI / 2 - .3); let ret = false; for (let i = 0; i < 360 && S.balls.length; i++) { update(STEP); if (S.balls[0] && S.balls[0].ret) ret = true; } const s1 = S.slots[1]; launch(s1, -Math.PI / 2); const b = S.balls[0]; b.bounced = true; b.x = S.p.x; b.y = S.p.y - 40; b.vx = 0; b.vy = 650; update(STEP); update(STEP); update(STEP); return { ok: ret && !s0.out && !s1.out && !b.ret }; });
+    T('카드: 3장 이하, 새 볼은 장착 덱 안에서만', () => { reset(1, { saving: false }); META.equip = ['fire', 'frost']; let ok = true; for (let i = 0; i < 40; i++) { const c = makeCards(); if (c.length > 3) ok = false; for (const x of c) if (x.k === 'new' && !META.equip.includes(x.fn)) ok = false; } return ok; });
+    T('융합: Lv5 두 볼 → 기능 합친 볼 Lv1', () => { reset(1, { saving: false }); S.owned = [newBall(['fire'], 5), newBall(['spark'], 5)]; recalc(); const c = makeCards().find(c => c.k === 'fuse'); if (!c) return false; pickCard(c); closeModal(); return { ok: S.owned.length === 1 && S.owned[0].fns.join() === 'fire,spark' && S.owned[0].lv === 1, info: ballName(S.owned[0]) }; });
+    T('진화: 지정 쌍이면 진화 카드가 먼저', () => { reset(1, { saving: false }); S.owned = [newBall(['fire'], 5), newBall(['bomb'], 5)]; recalc(); const c = makeCards(); return { ok: c[0].k === 'evo' && c[0].id === 'inferno', info: c.map(x => x.k).join(',') }; });
+    T('핀볼 확률 합 (칸·릴·등급 = 100)', () => { const s = a => a.reduce((x, y) => x + y, 0); const a = s(PINBALL.slots.map(x => x.w)), b = s(Object.values(PINBALL.reel)), c = s(Object.values(PINBALL.rarity)), d = s(Object.values(PINBALL.tripleBall)); return { ok: a === 100 && b === 100 && c === 100 && d === 100, info: [a, b, c, d].join('/') }; });
+    T('핀볼 칸 분포 (10만 번, EXP 96% · 잭팟 4%)', () => { let g = 0; const N = 100000, gi = PINBALL.slots.findIndex(s => s.id === 'gift'); for (let i = 0; i < N; i++) if (rollSlot() === gi) g++; return { ok: Math.abs(g / N - .04) < .004, info: (g / N * 100).toFixed(2) + '%' }; });
+    T('저장 왕복 (save → load 동일)', () => { const k = localStorage.getItem(SAVE_KEY); SAVING = true; META = freshMeta(); META.pinball = 123; META.plv = 7; META.balls.giant = { lv: 3, copies: 2 }; const before = JSON.stringify(META); saveMeta(); META = null; loadMeta(); const after = JSON.stringify(META); SAVING = false; if (k === null) localStorage.removeItem(SAVE_KEY); else localStorage.setItem(SAVE_KEY, k); return before === after; });
+    T('결과 핀볼: 레벨1 첫 클리어 22 · 패배는 진행도 비례', () => { META = freshMeta(); reset(1, { saving: false }); endBattle(true); const w = S.result.pinball; reset(1, { saving: false }); S.wavesDone = 2; endBattle(false); return { ok: w === 22 && S.result.pinball === Math.floor(9 * .5 * .5), info: w + ' / ' + S.result.pinball }; });
+  } finally { S = keep.S; META = keep.META; RNG = keep.RNG; SAVING = keep.SAVING; }
+  const pass = R.filter(r => r.ok).length;
+  console.log('selfTest: ' + pass + '/' + R.length + ' PASS');
+  return { pass, total: R.length, results: R };
+}
+
 
 // ===================== 흐름 =====================
 function startLevel(id, o = {}) { if (id === 1 && !META.tut.lv1) o.tutorial = true; if (o.tutorial) o.picks = []; reset(id, o); }
@@ -2728,7 +2798,7 @@ requestAnimationFrame(frame);
 window.game = {
   get state() { return S; }, get S() { return S; }, get META() { return META; }, IN, RULE, LEVELS, ENEMY, BOSS, FN, EVO, ITEM,
   get MS() { return MS; }, loadMeta, saveMeta, freshMeta, setMeta(m) { META = m; }, goTab, goLobby, openPrep, pbFire, spinJackpot, payOut, rollSlot, addPxp, baseStats, autoGain,
-  startRaid, raidSettle, dailyBot, leagueOf, ticketTick,
+  selfTest, bot, startRaid, raidSettle, dailyBot, leagueOf, ticketTick,
   start: startLevel, reset, spawn, spawnBoss, launch, update, newBall, makeCards, pickCard, gainXp, recalc, openFreeUp, openItemCap, pickItem, closeModal, finishFreeUp,
   step(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   seed(s) { RNG = mulberry32(s >>> 0); },
