@@ -1524,7 +1524,7 @@ function summonAround(e, types) {
   const Bd = bounds(), G = BOSS.summonGap, ph = rand(TAU);
   types.forEach((t, i) => {
     const row = Math.floor(i / BOSS.summonRow), col = i % BOSS.summonRow, inRow = Math.min(BOSS.summonRow, types.length - row * BOSS.summonRow);
-    const x = Math.max(Bd.l + 20, Math.min(Bd.r - 20, e.x + (col - (inRow - 1) / 2) * G.x)), y = e.y + e.r + 20 + row * G.y; // 좌우로만 맞춤
+    const half = (inRow - 1) / 2 * G.x + 20, rx = Math.max(Bd.l + half, Math.min(Bd.r - half, e.x)), x = rx + (col - (inRow - 1) / 2) * G.x, y = e.y + e.r + 20 + row * G.y; // 줄 전체를 좌우로만 보드 안에 맞춤 (칸끼리 겹치지 않게)
     const m = spawn(t, x, y, {}); m.rise = BOSS.summonRise + BOSS.summonRiseEach * i; m.riseT = m.rise; m.swayPh = ph;
   });
 }
@@ -1783,12 +1783,13 @@ function updateEnemies(dt) {
       if (e.atkT >= e.atkEvery) { e.atkT = 0; hurtPlayer(e.dmg); }
     } else e.inRange = false;
   }
-  // 좀비끼리 겹치지 않게 밀어냄 (사용자 지시: 대형 안·대형끼리 포함 모든 좀비, 지름 100%).
-  // 대형 멤버는 대형 안 자리(ox·oy)를 옮겨 다음 프레임에도 유지, 나머지는 위치를 옮김. 돌진 중·솟아오르는 중은 제외
-  const all = S.enemies.filter(e => !e.dead && !e.boss && e.cs !== 'dash' && !(e.rise > 0)).sort((a, b) => a.x - b.x);
+  // 좀비끼리 겹치지 않게 밀어냄 (사용자 지시: 대형 안·대형끼리·보스·솟아오르는 좀비 포함, 지름 100%).
+  // 대형 멤버는 대형 안 자리(ox·oy)를 옮겨 다음 프레임에도 유지. 보스는 움직이지 않고 좀비를 밀어냄. 돌진 중은 제외
+  const all = S.enemies.filter(e => !e.dead && e.cs !== 'dash').sort((a, b) => a.x - b.x);
   const maxR = all.reduce((m, e) => Math.max(m, e.r), 0);
+  const fixed = e => e.boss ? 2 : 0; // 보스는 안 움직임, 좀비끼리는 반씩 (솟아오르는 좀비도 살짝 밀림: 사이에 낀 좀비가 빠져나가게)
   const nudge = (e, x, y) => { e.x += x; e.y += y; if (e.form && !ENEMY[e.type].bomber) { e.ox += x; e.oy += y; } };
-  for (let pass = 0; pass < 6; pass++) { all.sort((a, b) => a.x - b.x); for (let i = 0; i < all.length; i++) {
+  for (let pass = 0; pass < 10; pass++) { all.sort((a, b) => a.x - b.x); for (let i = 0; i < all.length; i++) {
     const a = all[i];
     for (let j = i + 1; j < all.length; j++) {
       const b = all[j], rr = (a.r + b.r) * MOVE.sep;
@@ -1796,13 +1797,13 @@ function updateEnemies(dt) {
       if (Math.abs(b.y - a.y) >= rr) continue;
       const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
       if (d2 >= rr * rr) continue;
-      const d = Math.sqrt(d2) || 1, nx = d2 ? dx / d : 1, ny = d2 ? dy / d : 0, push = (rr - (d2 ? d : 0)) / 2;
-      nudge(a, -nx * push, -ny * push); nudge(b, nx * push, ny * push);
+      const fa = fixed(a), fb = fixed(b); if (fa === 2 && fb === 2) continue;
+      const d = Math.sqrt(d2) || 1, nx = d2 ? dx / d : 1, ny = d2 ? dy / d : 0, push = rr - (d2 ? d : 0);
+      const ka = fa === fb ? .5 : fa > fb ? 0 : 1, kb = 1 - ka;
+      if (ka) nudge(a, -nx * push * ka, -ny * push * ka); if (kb) nudge(b, nx * push * kb, ny * push * kb);
     }
   }
-  for (const e of all) { const cx = Math.max(B.l + e.r, Math.min(B.r - e.r, e.x)) - e.x; if (cx) nudge(e, cx, 0); } }
-  const free = all.filter(e => !e.form);
-  if (S.boss && !S.boss.dead) for (const a of free) { const e = S.boss, dx = a.x - e.x, dy = a.y - e.y, d = Math.hypot(dx, dy) || 1, rr = a.r + e.r; if (d < rr) { a.x = e.x + dx / d * rr; a.y = e.y + dy / d * rr; } }
+  for (const e of all) { if (e.boss) continue; const cx = Math.max(B.l + e.r, Math.min(B.r - e.r, e.x)) - e.x; if (cx) nudge(e, cx, 0); } }
   // 플레이어는 좀비 몸을 통과하지 못함 (겹치면 플레이어를 밀어냄)
   for (const e of S.enemies) {
     if (e.dead || e.y < TOP || (e.rise > 0)) continue;
@@ -2015,7 +2016,7 @@ function drawEnemy(e) {
   if (e.elite || e.boss) { ctx.globalAlpha = .25 + .15 * Math.sin(S.t * 8); ctx.fillStyle = '#ff3030'; ctx.beginPath(); ctx.ellipse(x, e.y + e.r * .9, e.r * 1.2, e.r * .4, 0, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
   if (e.boss && BOSS[e.bid].rod) { const Rd = BOSS[e.bid].rod, a = e.rodA, cx0 = e.x, cy0 = e.y + e.r + Rd.off, ux = Math.cos(a) * Rd.half, uy = Math.sin(a) * Rd.half; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(cx0 - ux, cy0 - uy); ctx.lineTo(cx0 + ux, cy0 + uy); ctx.strokeStyle = UI.ink; ctx.lineWidth = 16; ctx.stroke(); ctx.strokeStyle = '#ff8a2a'; ctx.lineWidth = 9; ctx.stroke(); ctx.lineCap = 'butt'; }
   spr(SPR[e.type + stTint(e) + f], x, y, ps);
-  if (e.boss && BOSS[e.bid].raid) { const blink = e.rest > 0 && Math.floor(S.t * 12) % 2; ctx.save(); ctx.translate(x, y - e.r * 1.3); ctx.rotate(e.spin || 0); for (let k = 0; k < RAID.leagues[S.raid.lg].tier + 1; k++) { ctx.rotate(TAU / (RAID.leagues[S.raid.lg].tier + 1)); ctx.fillStyle = UI.ink; ctx.fillRect(0, -6, 30, 12); ctx.fillStyle = blink ? '#fff' : '#c8d0dc'; ctx.fillRect(2, -4, 26, 8); } ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fillStyle = blink ? '#fff' : S.raid.bot.hue; ctx.fill(); uiLine(UI.ink, 4); ctx.restore(); }
+  if (e.boss && BOSS[e.bid].raid) { const blink = e.rest > 0 && Math.floor(S.t * 12) % 2; ctx.save(); ctx.translate(x, y - RAID_MOB.body.turY); ctx.rotate(e.spin || 0); for (let k = 0; k < RAID.leagues[S.raid.lg].tier + 1; k++) { ctx.rotate(TAU / (RAID.leagues[S.raid.lg].tier + 1)); ctx.fillStyle = UI.ink; ctx.fillRect(0, -6, 30, 12); ctx.fillStyle = blink ? '#fff' : '#c8d0dc'; ctx.fillRect(2, -4, 26, 8); } ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fillStyle = blink ? '#fff' : S.raid.bot.hue; ctx.fill(); uiLine(UI.ink, 4); ctx.restore(); }
   if (e.guardT > 0) { ctx.globalAlpha = .5; ctx.beginPath(); ctx.arc(x, y, e.r + 10, .2, Math.PI - .2); ctx.strokeStyle = '#a8d4f4'; ctx.lineWidth = 8; ctx.stroke(); ctx.globalAlpha = 1; }
   if (e.st.stun) for (let i = 0; i < 3; i++) { const a = S.t * 5 + i * TAU / 3; uiStar(x + Math.cos(a) * e.r * .7, y - e.r * 1.2 + Math.sin(a) * 4, 6, UI.gold); }
   drawEnemyHp(e);
@@ -2509,7 +2510,7 @@ function renderPrep() {
   });
   uiPath(16, 512, 688, 488, 28); ctx.fillStyle = 'rgba(20,8,50,.5)'; ctx.fill(); uiLine('rgba(255,255,255,.18)', 3);
   uiTxt('내 볼 (장착 ' + META.equip.length + '/8)', 36, 554, 28, '#fff', 'left'); uiTxt('눌러서 고르기 · 위 칸 누르면 빼기', 684, 552, 19, '#e6dcff', 'right');
-  prepPool().forEach((f, i) => {
+  prepPool().sort(byRarity).forEach((f, i) => { // 목록은 희귀도 순, 기본 선택(openPrep)은 장착 순서 앞 2개
     const on = S.picks.indexOf(f), x = 30 + 167 * (i % 4), y = 580 + 164 * Math.floor(i / 4) - (on >= 0 ? 6 : 0), cx = x + 78;
     uiCard(x, y, 157, 150, on >= 0 ? '#fff4c0' : UI.cream, RCOL[rarityOf(f)], 26, true, on >= 0 ? 8 : 0);
     uiTxt(RNAME[rarityOf(f)], cx, y + 20 + 5, 15); uiBall(cx, y + 76, 32, [f]); fitLabel(FN[f].name, cx, y + 134 + 8, 22, 140, UI.ink, 'center', 900, 14);
@@ -2526,7 +2527,8 @@ function renderPrep() {
 // ---------- 볼 탭 (B.9) ----------
 const RORDER = ['common', 'uncommon', 'rare', 'unique'];
 const BGRID = { top: 530, bot: 880, w: 124, h: 146, px: 132, py: 154 }; // 도감 카드 칸 (이전 시안 카드 모양, 사용자 지시)
-const codexOrder = () => ALL_FNS.slice().sort((a, b) => RORDER.indexOf(rarityOf(a)) - RORDER.indexOf(rarityOf(b)) || FN[a].name.localeCompare(FN[b].name, 'ko'));
+const byRarity = (a, b) => RORDER.indexOf(rarityOf(a)) - RORDER.indexOf(rarityOf(b)) || FN[a].name.localeCompare(FN[b].name, 'ko'); // 7.2: 희귀도 낮은 순, 같으면 가나다순
+const codexOrder = () => ALL_FNS.slice().sort(byRarity);
 function renderBalls() {
   ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
   uiTxt('장착한 볼 ' + META.equip.length + ' / 8', 32, 158, 30, '#fff', 'left'); uiTxt('전투를 이 볼들로 시작해요', 690, 156, 18, '#e6dcff', 'right');
@@ -3027,7 +3029,7 @@ const RAID_BOTS = [
 const RAID_MOB = {
   w: [{ knight: 3, archer: 1 }, { knight: 3, archer: 1, shield: 1, bomber: 1, boar: 1 }, { knight: 3, archer: 2, shield: 1, priest: 1, bomber: 1, boar: 1 }],
   forms: ['row', 'wedge', 'block'], rise: [.8, 1.3],
-  body: { r: 80, chase: 38, melee: 16, atkEvery: 2, wave: { every: 8, dmg: 8 } },
+  body: { r: 38 /* 사용자 지시: 그림(폭 약 56·높이 80)에 맞춤, GDD r 80 */, turY: 104, chase: 38, melee: 16, atkEvery: 2, wave: { every: 8, dmg: 8 } },
   shotSpd: RAID.ballSpd * RAID.spiralSpd, // 모든 패턴 탄속 225
   fan: { width: .75 }, aimall: { spd: .85 }, flower: { rot: .6 }, storm: { spread: .8, spd: [.7, 1.3] },
   fx: { slow: { t: 1.5, mul: .5 }, dot: { t: 3, dps: 4 }, curse: { t: 3, mul: 1.3 } },
