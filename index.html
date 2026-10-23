@@ -231,11 +231,11 @@ function loadMeta() {
 function saveMeta() { if (!SAVING) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify(META)); } catch (e) {} }
 const charLv = id => META.chars[id] ? META.chars[id].lv : 0;
 function addBall(id, n = 1) { const b = META.balls[id]; if (b) b.copies += n; else { META.balls[id] = { lv: 1, copies: n - 1 }; } }
-function addShard(id, n = 1) { // 미해금이면 10개에 해금, 이후 조각은 강화 재료 (최대 레벨이면 핀볼로)
+function addShard(id, n = 1) { // 미해금이면 10개에 해금, 이후 조각은 강화 재료 (보유 캐릭터 조각은 그냥 쌓임)
   let extra = 0;
   if (!META.chars[id]) { META.shards[id] = (META.shards[id] || 0) + n; if (META.shards[id] >= PINBALL.shardsToUnlock) { extra = META.shards[id] - PINBALL.shardsToUnlock; delete META.shards[id]; META.chars[id] = { lv: 1, shards: 0 }; } }
   else extra = n;
-  if (extra) { const c = META.chars[id]; if (c.lv >= PINBALL.charMaxLv) META.pinball += extra * PINBALL.dupShardPb; else c.shards += extra; }
+  if (extra) META.chars[id].shards += extra;
 }
 function addPxp(v) { META.pxp += v; let up = 0; while (META.pxp >= PLV.need(META.plv)) { META.pxp -= PLV.need(META.plv); META.plv++; up++; } return up; }
 
@@ -1097,7 +1097,7 @@ function onBounce(b) { // 고무 머리띠·불타는 타이어: 튕길 때마�
 function recover(b, byBody) {
   if (b.slot) b.slot.out = false;
   b.dead = true;
-  if (byBody) addFx({ k: 'ring', x: S.p.x, y: S.p.y, t: 0, T: .25, c: '#9fffb0' });
+  if (byBody) { addFx({ k: 'ring', x: S.p.x, y: S.p.y, t: 0, T: .25, c: '#9fffb0' }); tutEvent('catch'); }
 }
 
 // ===================== 9. 레벨업 카드 · 무료 강화 · 캡슐 · 아이템 =====================
@@ -1258,6 +1258,7 @@ function spawnFormation() {
       if (ax + ox < B.l + 8 || ax + ox > B.r - 8) continue; // 보드 밖 칸은 버림
       const D = ENEMY[t];
       const e = spawn(t, ax + ox, ay + oy, { big: bigIdx.has(k) && !D.bomber, stopY: D.ranged || D.support ? TOP + MOVE.stopForm[0] + rand(0, MOVE.stopForm[1]) + (rows.length - 1 - ri) * FORMS.gap.y : null });
+      if (S.raid) { const sy = e.stopY != null ? e.stopY : TOP + MOVE.stopForm[0] + rand(0, MOVE.stopForm[1]) + (rows.length - 1 - ri) * FORMS.gap.y; e.x = ax + ox; e.y = sy - 10; e.stopY = Math.max(e.y, e.stopY || 0); e.rise = e.riseT = rand(...RAID_MOB.rise); continue; }
       e.form = F; e.ox = ox; e.oy = oy; F.members.push(e);
     }
   });
@@ -1329,7 +1330,7 @@ function kill(e, o = {}) {
   gore(e);
   const pr = o.ball ? o.ball.pr : null;
   if (e.boss) return bossDown(e);
-  let xp = e.xp * RULE.mobXp * (e.elite ? 4 : e.big ? 2 : 1) * (S.raid ? RAID.xpMul : 1);
+  let xp = e.xp * RULE.mobXp * (e.elite ? 4 : e.big ? 2 : 1);
   if (pr && pr.v.lucky) xp *= 1 + pr.v.lucky.pct;
   S.gems.push({ x: e.x, y: e.y, vy: ITEMFALL.v0, v: xp });
   if (pr && pr.v.nova) area(e.x, e.y, pr.v.nova.r, pr.dmg * pr.v.nova.pct, FN.nova.color);
@@ -1576,6 +1577,8 @@ function update(dt) {
   updateItems(dt);
   updateWaves(dt);
   updateFx(dt);
+  tutBattleTick(dt); nameTags();
+  for (const e of S.enemies) if (e.tag > 0) e.tag -= dt;
   if (S.mode === 'play') openNext();
 }
 function moveVec() {
@@ -1782,7 +1785,7 @@ function updateShots(dt) {
       const mv = itemV('mirror') || (hasItem('fate') ? .2 : 0);
       if (mv && rand() < mv) { const t = nearest(p.x, p.y, 1)[0]; if (t) { addFx({ k: 'zap', x: p.x, y: p.y, x2: t.x, y2: t.y, t: 0, T: .2, c: '#c8f0ff' }); hurt(t, s.dmg * 3 + p.atk); } continue; }
       const qv = itemV('quiver') || (hasItem('fate') ? .3 : 0); if (qv && rand() < qv) { heal(hasItem('fate') ? 3 : 2); addNum(p.x, p.y - p.r - 6, '+HP', false, '#7dff8a'); continue; } // 화살통: 탄은 피해 없이 사라짐
-      if (hurtPlayer(s.dmg)) { if (s.fx === 'slow') p.slowT = 2; if (s.fx === 'dot') { p.dot = s.dmg * .3; p.dotT = 3; } if (s.fx === 'curse') p.curseT = 4; }
+      if (hurtPlayer(s.dmg)) { const F = RAID_MOB.fx; if (s.fx === 'slow') p.slowT = F.slow.t; if (s.fx === 'dot') { p.dot = F.dot.dps; p.dotT = F.dot.t; } if (s.fx === 'curse') p.curseT = F.curse.t; }
     }
   }
   S.shots = S.shots.filter(s => !s.dead);
@@ -1826,7 +1829,7 @@ function updateGems(dt) {
     if (Math.hypot(p.x - g.x, p.y - g.y) < p.pickR) {
       g.dead = true;
       if (g.kind) { S.pendCaps.push(g); shake(8); sfx('gift'); buzz(40); }
-      else { gainXp(g.v); sfx('gem'); }
+      else { gainXp(g.v); sfx('gem'); tutEvent('gem'); }
     } else if (g.y >= BOT) g.dead = true;
   }
   S.gems = S.gems.filter(g => !g.dead); S.caps = S.caps.filter(g => !g.dead);
@@ -1843,7 +1846,7 @@ function updateItems(dt) {
     for (let i = 0; i < n; i++) { const a = S.t * 2 + i * Math.PI, tx = p.x + Math.cos(a) * 46, ty = p.y + Math.sin(a) * 46, sp = RULE.ballSpeed, d = p.atk * .8;
       S.balls.push({ x: tx, y: ty, vx: Math.cos(p.aim) * sp, vy: Math.sin(p.aim) * sp, spd: sp, base: sp, r: 6, slot: null, baby: true, tur: true, life: 3, pr: { fns: [], v: {}, dmg: d }, fns: [], dmg: d, hit: new Map(), rot: 0, spin: 0, walls: 0, hits: 0, pierce: 0, ric: 0 }); fixVy(S.balls[S.balls.length - 1]); } } }
 }
-function xpNeed(lv) { return RULE.xpBase + RULE.xpPer * lv; }
+function xpNeed(lv) { return (RULE.xpBase + RULE.xpPer * lv) * (S.raid ? RAID.xpMul : 1); } // 침략: 필요 경험치 ×0.4
 function gainXp(v) { S.xp += v; while (S.xp >= xpNeed(S.lv)) { S.xp -= xpNeed(S.lv); S.lv++; S.pendLv++; } }
 function waveLen(w) { return S.raid ? RAID.waveLen : w <= 2 ? 20 : 25; }
 function updateWaves(dt) {
@@ -1879,7 +1882,7 @@ function onBattleEnd(R) { // 승패 모두 핀볼 지급, 첫 클리어면 다�
   META.hi = Math.max(META.hi || 0, R.kills);
   META.pinball += R.pinball;
   if (R.first) META.best = S.L.id;
-  META.tut.lv1 = true; META.tut.move = true;
+  if (R.win && S.L.id === 1) META.tut.lv1 = true; // 레벨 1을 처음 클리어할 때까지 매 판 튜토리얼
   saveMeta();
 }
 function menuUpdate(dt) {
@@ -1991,6 +1994,7 @@ function drawEnemy(e) {
   if (e.guardT > 0) { ctx.globalAlpha = .5; ctx.beginPath(); ctx.arc(x, y, e.r + 10, .2, Math.PI - .2); ctx.strokeStyle = '#a8d4f4'; ctx.lineWidth = 8; ctx.stroke(); ctx.globalAlpha = 1; }
   if (e.st.stun) for (let i = 0; i < 3; i++) { const a = S.t * 5 + i * TAU / 3; uiStar(x + Math.cos(a) * e.r * .7, y - e.r * 1.2 + Math.sin(a) * 4, 6, UI.gold); }
   drawEnemyHp(e);
+  if (e.tag > 0) { ctx.globalAlpha = Math.min(1, e.tag * 2); ctx.font = '900 18px ' + FONT; const w = ctx.measureText(ENEMY[e.type].name).width + 20; uiPill(e.x - w / 2, e.y - e.r - 52, w, 30, '#4a2394'); uiTxt(ENEMY[e.type].name, e.x, e.y - e.r - 31, 18, UI.gold); ctx.globalAlpha = 1; }
 }
 function drawPlayer() {
   const p = S.p;
@@ -2796,41 +2800,76 @@ function renderJackpot() { // B.7.5 잭팟 슬롯머신
   hit({ x: 0, y: 0, w: W, h: H }, () => { if (t < st[2]) j.t = st[2]; else if (!j.flown) j.t = st[2] + JPT.card; }); // 탭: 릴 즉시 정지, 정지 후엔 다음으로
 }
 
-// ===================== 튜토리얼 힌트 (각 1회, META.tut. 한 번에 하나만) =====================
+// ===================== 튜토리얼 (6.11 · META.tut) =====================
 const newBalls = () => Object.keys(META.balls).filter(f => !META.equip.includes(f) && f !== (CHAR[META.sel] || {}).ball); // 시작 볼은 장착 안 해도 들고 나감
 const newBallOwned = () => newBalls().length > 0;
+const TUT = { move: 90, aimWait: 7, tag: 3.5 };
+// 메뉴 힌트: 한 번에 하나, 화면 어디를 눌러도 보이던 말풍선은 영구히 닫힘 (key로 기록)
 function currentHint() {
-  const T = META.tut, m = S.mode;
+  const T = META.tut, m = S.mode, X = T.x || {};
+  const h = (key, text, tx, ty, by) => X[key] ? null : { key, text, tx, ty, by };
+  let r = null;
   if (m === 'lobby') {
-    if (!T.pin && META.pinball > 0) return { text: '핀볼을 머신에 쏴서 성장해요!', tx: tabX('select'), ty: 1226, by: 800 };
-    if (T.pin && !META.firstCycle && !T.equip && newBallOwned()) return { text: '새 볼이 생겼어요. 장착해요!', tx: tabX('balls'), ty: 1226, by: 800 };
-    if (!T.chars && (Object.keys(META.shards).length || HUMAN_IDS.some(canUpChar))) return { text: '캐릭터 조각이 생겼어요', tx: tabX('chars'), ty: 1226, by: 800 };
-    if (!T.raid && (META.best || 0) >= 2) return { text: '침략이 열렸어요!', tx: tabX('arena'), ty: 1226, by: 800 };
-    if (T.equip && !T.next && (META.best || 0) >= 1) return { text: '강해졌어요. 다음 레벨에 도전!', tx: CX, ty: 1000, by: 800 };
+    if (!T.pin && META.pinball > 0) r = h('pin', '핀볼을 머신에 쏴서 성장해요!', tabX('select'), 1226, 800);
+    else if (T.pin && !META.firstCycle && !T.equip && newBallOwned()) r = h('equip', '새 볼이 생겼어요. 볼 탭에서 장착해요!', tabX('balls'), 1226, 800);
+    else if (!T.chars && Object.keys(META.shards).length) r = h('chars', '캐릭터 조각이 생겼어요! 캐릭터 탭을 봐요', tabX('chars'), 1226, 800);
+    else if (!T.raid && (META.best || 0) >= 2) r = h('raid', '침략에서 다른 유저를 공격해요!', tabX('arena'), 1226, 800);
+    else if (autoGain() >= 1 && !X.claim) r = h('claim', '자동 사냥 핀볼을 받아요', 566, 870, 700);
   }
-  if ((m === 'select') && !T.push && META.pinball >= 1) return { text: 'PUSH를 꾹 누르고 있어요', tx: 360, ty: 1072, by: 880 };
-  if (m === 'balls' && !T.equip && S.sel !== newBalls()[0] && newBallOwned()) { const f = newBalls()[0], i = codexOrder().indexOf(f); return { text: '새 볼을 눌러 정보를 봐요', tx: 30 + 66.4 * (i % 10) + 31, ty: 528 + 118 * Math.floor(i / 10) + 54, by: 1100 }; }
-  if (m === 'balls' && !T.equip && newBallOwned()) return { text: '장착을 눌러요', tx: 560, ty: 1035, by: 800 };
-  if (m === 'prep' && !T.prep) return { text: '볼 2개를 골라 출전!', tx: 470, ty: 1080, by: 980 };
+  if (r) return r;
+  if (m === 'select' && !T.push && META.pinball >= 1) return h('push', 'PUSH를 꾹 누르고 있어요', 360, 1072, 880);
+  if (m === 'balls' && !T.equip && newBallOwned()) { const f = newBalls()[0], i = codexOrder().indexOf(f); return S.sel !== f ? h('equip1', '새 볼을 눌러 정보를 봐요', 30 + 66.4 * (i % 10) + 31, 528 + 118 * Math.floor(i / 10) + 54, 1100) : h('equip2', '장착을 눌러요', 560, 1035, 1100); }
+  if (m === 'chars' && Object.keys(META.shards).length) return h('chars2', '조각 10개를 모으면 캐릭터가 열려요', null, null, 1100);
+  if (m === 'arena') return h('arena', '침략 시작을 눌러 상대를 찾아요', 360, 1040, 880);
+  if (m === 'prep') return h('prep', '볼 2개를 골라 출발!', 470, 1080, 980);
   return null;
 }
 function hintUpdate(dt) {
   const T = META.tut, m = S.mode; let ch = false;
   if (m === 'select' && !T.pin) T.pin = ch = true;
   if (m === 'machine' && !T.push) T.push = ch = true;
-  if (m === 'chars' && !T.chars) T.chars = ch = true;
+  if (m === 'chars' && !T.chars && Object.keys(META.shards).length) T.chars = ch = true;
   if (m === 'arena' && !T.raid) T.raid = ch = true;
   if (ch) saveMeta();
 }
+function hintTapped() { // 보이던 말풍선은 영구히 닫힘 (그 탭 동작은 그대로)
+  const h = MENU_MODES.includes(S.mode) ? currentHint() : S.mode !== 'play' ? (battleHint() ? { key: 'b_' + S.mode } : null) : null;
+  if (!h) return;
+  const T = META.tut; T.x = T.x || {}; T.x[h.key] = 1;
+  if (h.key === 'b_levelup') T.card = true; if (h.key === 'b_freeup' || h.key === 'b_itemcap') T.cap = true;
+  saveMeta();
+}
 function drawHint() { const h = currentHint(); if (h) tutHint(h.text, h.tx, h.ty, CX, h.by); }
-function battleHint() { // 레벨 1 첫 도전: 이동·조준 → 첫 레벨업 카드 → 첫 캡슐
-  const T = META.tut;
-  if (S.mode === 'levelup' && !T.card) return '카드를 하나 골라 볼을 늘리거나 강화해요';
-  if ((S.mode === 'freeup' || S.mode === 'itemcap') && !T.cap) return S.mode === 'freeup' ? '볼 캡슐 = 무료 강화! 볼 레벨이 올라요' : '장비 캡슐: 아이템 하나를 골라요';
-  if (S.mode === 'play' && S.tutorial && !T.move && S.t < 9) return S.t < 4.5 ? '왼쪽 아래를 끌어서 움직여요' : '공은 자동으로 쏴요 · 오른쪽 아래로 직접 조준';
+// 전투 힌트: 시간이 아니라 행동으로 넘어감 — 90px 이동 → 조준(또는 7초) → 튕긴 공 몸으로 받기 → 보석 줍기
+const TUT_STEPS = [
+  () => META.set.ctrl === 'tap' ? '아래 가운데 스틱을 끌어서 움직여요' : '화면 왼쪽을 누른 채 끌어서 움직여요',
+  () => META.set.ctrl === 'tap' ? '보드를 누르면 그쪽으로 조준해요' : '화면 오른쪽을 끌면 조준, 놓으면 자동 조준',
+  () => '공은 튕겨서 돌아와요… 몸으로 받으면 바로 다시 쏴요!',
+  () => '좀비가 떨어뜨린 보석을 주워요',
+];
+function tutBattleTick(dt) { // 튜토리얼 판에서만 진행
+  if (!S.tutorial) return;
+  const T = META.tut, st = T.b || 0, p = S.p; if (st >= TUT_STEPS.length) return;
+  S.tutT = (S.tutT || 0) + dt;
+  if (st === 0) { S.tutMove = (S.tutMove || 0) + Math.hypot(p.x - (S.tutPx || p.x), p.y - (S.tutPy || p.y)); S.tutPx = p.x; S.tutPy = p.y; if (S.tutMove >= TUT.move) tutNext(); }
+  else if (st === 1 && ((IN.stickR && IN.stickR.a != null) || IN.tapAim != null || S.tutT >= TUT.aimWait)) tutNext();
+}
+function tutNext() { META.tut.b = (META.tut.b || 0) + 1; S.tutT = 0; saveMeta(); }
+function tutEvent(k) { if (!S.tutorial) return; const st = META.tut.b || 0; if ((k === 'catch' && st === 2) || (k === 'gem' && st === 3)) tutNext(); }
+function battleHint() {
+  const T = META.tut, X = T.x || {};
+  if (S.mode === 'levelup' && !T.card && !X.b_levelup) return '카드를 하나 골라요! 새 볼을 얻거나 강화해요';
+  if (S.mode === 'freeup' && !T.cap && !X.b_freeup) return '볼 캡슐 = 무료 강화! 볼 레벨이 올라요';
+  if (S.mode === 'itemcap' && !T.cap && !X.b_itemcap) return '장비 캡슐: 아이템 하나를 골라요';
+  if (S.mode === 'play' && S.tutorial && (T.b || 0) < TUT_STEPS.length) return TUT_STEPS[T.b || 0]();
   return null;
 }
-function drawBattleHint() { const s = battleHint(); if (s) tutHint(s, null, null, CX, S.mode === 'play' ? 220 : 1210); }
+function drawBattleHint() { const s = battleHint(); if (s) tutHint(s, null, null, CX, S.mode === 'play' ? ((META.tut.b || 0) < 2 ? 720 : 220) : 1210); }
+// 처음 보는 좀비 종류: 3.5초 동안 머리 위 이름표
+function nameTags() {
+  const seen = META.tut.seen = META.tut.seen || {};
+  for (const e of S.enemies) if (!e.boss && !seen[e.type] && e.y > TOP + 10 && !(e.rise > 0)) { seen[e.type] = 1; e.tag = TUT.tag; if (S.saving) saveMeta(); }
+}
 
 // ===================== 보스 처치 연출 (6.12 A 7번 · 8.11) =====================
 function bossDown(e) {
@@ -2957,55 +2996,59 @@ const RAID_BOTS = [
   { id: 'ice', name: '얼음이', tier: 3, hue: '#bfe9ff', balls: [['frost', 'homing', 'split'], ['poison', 'curse'], ['wind']] },
   { id: 'bolt', name: '번개', tier: 3, hue: '#ffe25a', balls: [['spark', 'fire', 'bomb'], ['pierce', 'homing'], ['giant']] },
 ];
-const RAID_MOB = { w: { knight: 3, boar: 1, shield: 1, archer: 1 }, forms: ['row', 'wedge', 'block'], r: 48, chase: 30, melee: 10 }; // 임시: 침략 웨이브 구성·상대 몸 크기
-const today = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+// 침략 웨이브 적 구성 (등급별), 상대 몸 (6.10)
+const RAID_MOB = {
+  w: [{ knight: 3, archer: 1 }, { knight: 3, archer: 1, shield: 1, bomber: 1, boar: 1 }, { knight: 3, archer: 2, shield: 1, priest: 1, bomber: 1, boar: 1 }],
+  forms: ['row', 'wedge', 'block'], rise: [.8, 1.3],
+  body: { r: 80, chase: 38, melee: 16, atkEvery: 2, wave: { every: 8, dmg: 8 } },
+  shotSpd: RAID.ballSpd * RAID.spiralSpd, // 모든 패턴 탄속 225
+  fan: { width: .75 }, aimall: { spd: .85 }, flower: { rot: .6 }, storm: { spread: .8, spd: [.7, 1.3] },
+  fx: { slow: { t: 1.5, mul: .5 }, dot: { t: 3, dps: 4 }, curse: { t: 3, mul: 1.3 } },
+};
 const leagueOf = rp => { let k = 0; RAID.leagues.forEach((l, i) => { if (rp >= l.min) k = i; }); return k; };
-function dailyBot(tier) { // 날짜 시드로 매일 등급별 1명
-  const r = mulberry32([...today()].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0), L = RAID_BOTS.filter(b => b.tier === tier);
-  for (let i = 0; i < tier; i++) r(); return L[Math.floor(r() * L.length)];
-}
 function ticketTick() { // 최대 5, 가득 찬 상태에서 처음 쓴 순간부터 30분마다 1개
   const P = 30 * 60000;
   while (META.tickets < 5 && META.ticketT && Date.now() - META.ticketT >= P) { META.tickets++; META.ticketT += P; }
   if (META.tickets >= 5) META.ticketT = 0;
 }
-const raidOpen = () => (META.best || 0) >= 2; // 임시: 튜토리얼 순서(최고 레벨 2+ 침략 안내)에 맞춤
+// 상대: 침략할 때마다 현재 아레나 등급의 상대 중 무작위 1명
+function pickRival(tier) { const L = RAID_BOTS.filter(b => b.tier === tier); return L[randi(0, L.length - 1)]; }
 function startRaid(picks) {
   ticketTick(); if (META.tickets <= 0) return;
   if (META.tickets >= 5) META.ticketT = Date.now();
   META.tickets--; saveMeta();
-  const lg = leagueOf(META.rp), L = RAID.leagues[lg], bot = dailyBot(L.tier);
-  reset(0, { picks, raid: { lg, bot } });
+  const lg = leagueOf(META.rp), L = RAID.leagues[lg], bot = pickRival(L.tier);
+  reset(0, { picks, raid: { lg, bot, rp: L.min + randi(0, 100) } });
   S.mode = 'match'; S.matchT = 0;
 }
-function raidLevel(lg) { const L = RAID.leagues[lg]; return { id: 0, name: L.an, hpMul: RAID.mobMul[L.tier - 1], bossMul: 1, dmgMul: 1, waves: RAID.waves, midAfter: 99, boss: 'rival', w: RAID_MOB.w, forms: RAID_MOB.forms }; }
+function raidLevel(lg) { const L = RAID.leagues[lg]; return { id: 0, name: L.an, hpMul: RAID.mobMul[L.tier - 1], bossMul: 1, dmgMul: 1, waves: RAID.waves, midAfter: 99, boss: 'rival', w: RAID_MOB.w[L.tier - 1], forms: RAID_MOB.forms }; }
 function spawnRival() {
-  const R = S.raid, b = R.bot, L = RAID.leagues[R.lg];
-  BOSS.rival = { name: b.name, r: RAID_MOB.r, hp: RAID.bossHp[L.tier - 1], xp: 0, melee: RAID_MOB.melee, atkEvery: 2, chase: RAID_MOB.chase, raid: true };
+  const R = S.raid, b = R.bot, L = RAID.leagues[R.lg], M = RAID_MOB.body;
+  BOSS.rival = { name: b.name, r: M.r, hp: RAID.bossHp[L.tier - 1], xp: 0, melee: M.melee, atkEvery: M.atkEvery, chase: M.chase, wave: M.wave, raid: true };
   for (const f of [0, 1]) for (const st of ['', ...Object.keys(TINT)]) SPR['rival' + (st ? '_' + st : '') + (f ? '1' : '')] = rivalSprite({ id: b.id, hue: b.hue, tier: b.tier }, st, f);
   const e = spawnBoss('rival', true);
   e.hp = e.maxHp = BOSS.rival.hp; // 침략 보스 HP는 등급별 고정
-  e.pat = 0; e.patT2 = RAID.patLen; e.rest = 0; e.fireT2 = 0; e.spin = 0;
-  S.banner = { t: 2, T: 2, name: b.name + ' (봇)', sub: '침략 상대' };
+  e.pat = 0; e.patT2 = RAID.patLen; e.rest = 0; e.fireT2 = 0; e.spin = 0; e.ballI = 0; e.alt = 0;
+  S.banner = { t: 2, T: 2, name: b.name + ' (봇)', sub: '침략 대상' };
 }
-// 상대 포탑: 상대 볼 구성대로 탄막. 패턴 4초 쏘고 0.7초 쉼(깜빡임 = 예고) 후 다음 패턴
+// 상대 포탑: 상대 볼을 차례대로 돌아가며 탄막. 패턴 4초 쏘고 0.7초 쉼(깜빡임 = 예고) 후 다음 패턴. 격노 시 패턴·발사 타이머 2배
 function raidFire(e, dt) {
-  const R = S.raid, L = RAID.leagues[R.lg], tier = L.tier, pats = L.pats, p = S.p;
-  if (e.rest > 0) { e.rest -= dt; if (e.rest <= 0) { e.pat = (e.pat + 1) % pats.length; e.patT2 = RAID.patLen; } return; }
-  e.patT2 -= dt; if (e.patT2 <= 0) { e.rest = RAID.patRest; return; }
+  const R = S.raid, L = RAID.leagues[R.lg], tier = L.tier, pats = L.pats, p = S.p, k = e.rage ? BOSS.rageMul : 1, M = RAID_MOB;
+  if (e.rest > 0) { e.rest -= dt * k; if (e.rest <= 0) { e.pat = (e.pat + 1) % pats.length; e.patT2 = RAID.patLen; } return; }
+  e.patT2 -= dt * k; if (e.patT2 <= 0) { e.rest = RAID.patRest; return; }
   const id = pats[e.pat], P = RAID.pat[id];
-  e.spin += RAID.spin * dt;
-  e.fireT2 -= dt; if (e.fireT2 > 0) return;
+  e.spin += RAID.spin * dt * (id === 'flower' ? M.flower.rot : 1);
+  e.fireT2 -= dt * k; if (e.fireT2 > 0) return;
   e.fireT2 = RAID.fireEvery[tier - 1] * P.gap;
-  const ball = R.bot.balls[randi(0, R.bot.balls.length - 1)], fn = ball[0];
-  const dmg = RAID.dmg[tier - 1] * .85 * L.dmg * P.dmg * (1 + .25 * (ball.length - 1)), aim = Math.atan2(p.y - e.y, p.x - e.x);
+  const ball = R.bot.balls[e.ballI++ % R.bot.balls.length], fn = ball[0];
+  const dmg = RAID.dmg[tier - 1] * .85 * L.dmg * P.dmg * (1 + .25 * (ball.length - 1)), aim = Math.atan2(p.y - e.y, p.x - e.x), r = 9 + 2 * ball.length;
   const fx = ball.includes('frost') ? 'slow' : ball.some(f => f === 'poison' || f === 'fire') ? 'dot' : ball.includes('curse') ? 'curse' : null;
-  const shoot = (a, spd = RAID.ballSpd) => S.shots.push({ k: 'star', x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 8, dmg, c: FN[fn].color, fx });
-  if (id === 'spiral') { const n = tier + 1; for (let i = 0; i < n; i++) shoot(e.spin + i * TAU / n, RAID.ballSpd * RAID.spiralSpd); }
-  else if (id === 'fan') for (let i = 0; i < P.n; i++) shoot(aim + (i - (P.n - 1) / 2) * P.spread / (P.n - 1) * 2);
-  else if (id === 'aimall') for (let i = 0; i < P.n; i++) shoot(i * TAU / P.n + e.spin * .2);
-  else if (id === 'flower') for (let i = 0; i < 6; i++) shoot(e.spin * (i % 2 ? 1 : -1) + i * TAU / 6, RAID.ballSpd * .8);
-  else if (id === 'storm') for (let i = 0; i < P.n; i++) shoot(aim + rand(-.5, .5), RAID.ballSpd * rand(.8, 1.2));
+  const shoot = (a, m = 1) => S.shots.push({ k: 'star', x: e.x, y: e.y, vx: Math.cos(a) * M.shotSpd * m, vy: Math.sin(a) * M.shotSpd * m, r, dmg, c: FN[fn].color, fx, free: true });
+  if (id === 'spiral') { const n = tier + 1; for (let i = 0; i < n; i++) shoot(e.spin + i * TAU / n); }
+  else if (id === 'fan') for (let i = 0; i < P.n; i++) shoot(aim + (i / (P.n - 1) - .5) * M.fan.width);
+  else if (id === 'aimall') { e.alt ^= 1; const off = e.alt ? TAU / P.n / 2 : 0; for (let i = 0; i < P.n; i++) shoot(aim + off + i * TAU / P.n, M.aimall.spd); }
+  else if (id === 'flower') { const n = tier + 1; for (let i = 0; i < n; i++) { shoot(e.spin + i * TAU / n); shoot(-e.spin + i * TAU / n); } }
+  else if (id === 'storm') for (let i = 0; i < P.n; i++) shoot(aim + rand(-M.storm.spread, M.storm.spread), rand(...M.storm.spd));
   sfx('shot');
 }
 function raidEnd(win) { // 침략 끝: 승리면 선택 화면(verdict), 패배면 결과
@@ -3225,6 +3268,7 @@ cv.addEventListener('pointerdown', ev => {
   ev.preventDefault(); audioInit();
   const pt = toLogical(ev);
   if (ev.pointerType === 'mouse') { IN.mouse = pt; IN.mouseHeld = true; }
+  hintTapped();
   if (S.mode === 'arena' && !S.popup && pt.y > ARENA.top && pt.y < ARENA.bot) { S.adrag = { id: ev.pointerId, y0: pt.y, s0: S.ascroll || 0, pt }; S.dragged = false; return; }
   if (hitBtn(pt)) return;
   if (S.mode !== 'play') return;
@@ -3295,7 +3339,7 @@ requestAnimationFrame(frame);
 window.game = {
   get state() { return S; }, get S() { return S; }, get META() { return META; }, IN, RULE, LEVELS, ENEMY, BOSS, FN, EVO, ITEM,
   get MS() { return MS; }, loadMeta, saveMeta, freshMeta, setMeta(m) { META = m; }, goTab, goLobby, openPrep, pbFire, spinJackpot, payOut, rollSlot, addPxp, baseStats, autoGain,
-  selfTest, bot, startRaid, raidSettle, dailyBot, leagueOf, ticketTick,
+  selfTest, bot, startRaid, raidSettle, pickRival, leagueOf, ticketTick,
   start: startLevel, reset, spawn, spawnBoss, launch, update, newBall, makeCards, pickCard, gainXp, recalc, openFreeUp, openItemCap, pickItem, closeModal, finishFreeUp,
   step(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   seed(s) { RNG = mulberry32(s >>> 0); },
