@@ -1031,8 +1031,8 @@ function recalc() {
   M.statusMul = ch.statusMul || 1;
   M.vampMul = ch.vampMul || 1;
   p.spd = b.spd * (1 + itemV('feet') + (hasItem('wings') ? .12 : 0));
-  p.pickR = PLAYER.pickR + itemV('magnet') + (ch.pickPlus || 0);
-  p.magnetR = PLAYER.magnetR + itemV('magnet') + (ch.pickPlus || 0);
+  p.pickR = PLAYER.pickR;
+  p.magnetR = PLAYER.magnetR + itemV('magnet') + (ch.pickPlus || 0); // 기본 자석 0
   p.catchR = b.catchR + itemV('magnet') / 15;
   const nN = (ch.normals || PLAYER.normals) + itemV('rattle') + (hasItem('cornucopia') ? 3 : 0);
   while (S.normals.length < nN) S.normals.push({ kind: 'normal', fns: [], out: false });
@@ -1063,7 +1063,7 @@ function shotProps(s) {
 function launch(slot, a) {
   const p = S.p, pr = shotProps(slot), hb = itemV('headband') || (hasItem('tire') ? 2 : 0);
   const spd = pr.spd * (hb ? .7 : 1);
-  const b = { x: p.x + Math.cos(a) * p.r * .6, y: p.y + Math.sin(a) * p.r * .6, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, spd, base: pr.spd, hbMax: hb, r: pr.r, slot, pr, fns: pr.fns, dmg: pr.dmg,
+  const b = { x: p.x + Math.cos(a) * PLAYER.r, y: p.y + Math.sin(a) * PLAYER.r, spin: 0, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, spd, base: pr.spd, hbMax: hb, r: pr.r, slot, pr, fns: pr.fns, dmg: pr.dmg,
     bounced: false, ret: false, hit: new Map(), rot: 0, walls: 0, wallBonus: false, hits: 0,
     pierce: pr.evo === 'lance' ? 1e9 : (pr.v.pierce ? Math.round(pr.v.pierce.n) : 0) + itemV('cloak'), ric: pr.v.ricochet ? Math.round(pr.v.ricochet.n) : 0 };
   if (hasItem('robe')) b.pierce = 1e9;
@@ -1080,6 +1080,15 @@ function fixVy(b) {
     const vx = Math.sqrt(Math.max(0, b.spd * b.spd - b.vy * b.vy));
     b.vx = b.vx < 0 ? -vx : vx;
   }
+}
+// 벽·적에 튕길 때 접선 마찰로 회전과 진행 방향이 서로 약간 바뀜 (속력 유지)
+const SPIN = { fric: .6 / 3.5, gain: 2.5, max: 26 };
+function spinBounce(b, nx, ny) {
+  const tx = -ny, ty = nx, vt = b.vx * tx + b.vy * ty, slip = vt + (b.spin || 0) * b.r, j = SPIN.fric * slip;
+  const sp = Math.hypot(b.vx, b.vy);
+  b.vx -= j * tx; b.vy -= j * ty;
+  b.spin = Math.max(-SPIN.max, Math.min(SPIN.max, (b.spin || 0) - SPIN.gain * j / b.r));
+  const s2 = Math.hypot(b.vx, b.vy) || 1; b.vx *= sp / s2; b.vy *= sp / s2;
 }
 function setSpeed(b, s) { const l = Math.hypot(b.vx, b.vy) || 1; b.vx *= s / l; b.vy *= s / l; b.spd = s; }
 function onBounce(b) { // 고무 머리띠·불타는 타이어: 튕길 때마다 빨라짐
@@ -1190,7 +1199,7 @@ function heal(v) {
 }
 function dropCap(x, y, kind) {
   const n = wpick(RULE.upCount.map((w, i) => [i + 1, w]));
-  S.caps.push({ x, y, vy: -120, kind, n });
+  S.caps.push({ x, y, vy: ITEMFALL.v0, kind, n });
 }
 
 // ===================== 10. 적 =====================
@@ -1313,7 +1322,7 @@ function kill(e, o = {}) {
   if (e.boss) return bossDown(e);
   let xp = e.xp * RULE.mobXp * (e.elite ? 4 : e.big ? 2 : 1) * (S.raid ? RAID.xpMul : 1);
   if (pr && pr.v.lucky) xp *= 1 + pr.v.lucky.pct;
-  S.gems.push({ x: e.x, y: e.y, vy: -80, v: xp });
+  S.gems.push({ x: e.x, y: e.y, vy: ITEMFALL.v0, v: xp });
   if (pr && pr.v.nova) area(e.x, e.y, pr.v.nova.r, pr.dmg * pr.v.nova.pct, FN.nova.color);
   const vv = itemV('valve'); if (vv) area(e.x, e.y, 50, S.p.atk * vv, '#c8c8d0');
   const sw = itemV('sword') + (hasItem('reaper') ? 1 : 0); if (sw) heal(sw);
@@ -1592,7 +1601,7 @@ function updateFire(dt) {
   for (let i = 0; i < n; i++) {
     const s = S.slots[(S.nextSlot + i) % n];
     if (!s.out) {
-      const spread = s.kind === 'normal' && (itemV('rattle') || hasItem('cornucopia')) ? rand(-.25, .25) : 0; // 딸랑이: 조준 흩어짐
+      const j = s.kind === 'normal' && (itemV('rattle') || hasItem('cornucopia')) ? .175 : .025, spread = rand(-j, j); // 조준 흔들림 (딸랑이 ±0.175)
       launch(s, S.p.aim + spread); S.nextSlot = (S.nextSlot + i + 1) % n; S.fireT = .1; return;
     }
   }
@@ -1607,7 +1616,7 @@ function updateBalls(dt) {
   MAXR = 20; for (const e of SORTED) if (e.r > MAXR) MAXR = e.r;
   for (const b of S.balls) {
     if (b.dead) continue;
-    b.rot += dt * 12;
+    b.rot += (b.spin || 0) * dt;
     if (b.baby) { b.life -= dt; if (b.life <= 0) { b.dead = true; continue; } }
     if (b.ret) { // 바닥에 닿은 공: 충돌 없이 플레이어에게 날아옴
       const dx = p.x - b.x, dy = p.y - b.y, l = Math.hypot(dx, dy), step = RULE.returnSpeed * dt;
@@ -1622,9 +1631,9 @@ function updateBalls(dt) {
       b.vx = Math.cos(cur + da) * b.spd; b.vy = Math.sin(cur + da) * b.spd;
     }
     b.x += b.vx * dt; b.y += b.vy * dt;
-    if (b.x - b.r < B.l) { b.x = B.l + b.r; b.vx = Math.abs(b.vx); wallHit(b); }
-    else if (b.x + b.r > B.r) { b.x = B.r - b.r; b.vx = -Math.abs(b.vx); wallHit(b); }
-    if (b.y - b.r < TOP) { b.y = TOP + b.r; b.vy = Math.abs(b.vy); wallHit(b); b.topTouched = true; if (itemV('cloak') && !hasItem('robe')) b.pierce = 0; }
+    if (b.x - b.r < B.l) { b.x = B.l + b.r; b.vx = Math.abs(b.vx); spinBounce(b, 1, 0); wallHit(b); }
+    else if (b.x + b.r > B.r) { b.x = B.r - b.r; b.vx = -Math.abs(b.vx); spinBounce(b, -1, 0); wallHit(b); }
+    if (b.y - b.r < TOP) { b.y = TOP + b.r; b.vy = Math.abs(b.vy); spinBounce(b, 0, 1); wallHit(b); b.topTouched = true; if (itemV('cloak') && !hasItem('robe')) b.pierce = 0; }
     if (b.y + b.r >= BOT) { if (b.baby) b.dead = true; else b.ret = true; continue; }
     // 화염 탱크의 회전 막대에 공이 튕김
     if (S.boss && BOSS[S.boss.bid].rod && !S.boss.entering) rodBounce(b, S.boss);
@@ -1646,7 +1655,7 @@ function updateBalls(dt) {
         const dot = b.vx * nx + b.vy * ny;
         if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; }
         b.x = e.x + nx * (rr + .5); b.y = e.y + ny * (rr + .5);
-        fixVy(b); onBounce(b);
+        spinBounce(b, nx, ny); fixVy(b); onBounce(b);
       }
       b.bounced = true;
       onHit(b, e, nx, ny, vyIn);
@@ -1783,18 +1792,19 @@ function updateHaz(dt) {
   }
   S.haz = S.haz.filter(h => !h.dead);
 }
+// 6.12 B: 위로 튀지 않고 30px/s에서 가속 60, 최대 110으로 떨어지다 바닥에서 사라짐(캡슐도). 획득 48, 자석은 한 번 걸리면 끝까지
 function updateGems(dt) {
-  const p = S.p;
+  const p = S.p, F = ITEMFALL;
   for (const g of S.gems.concat(S.caps)) {
     const dx = p.x - g.x, dy = p.y - g.y, d = Math.hypot(dx, dy) || 1;
-    if (d < p.magnetR) { const s = 520 * dt; g.x += dx / d * s; g.y += dy / d * s; }
-    else if (g.kind) { if (g.y < BOT - 30) { g.vy = Math.min(160, g.vy + 300 * dt); g.y += g.vy * dt; } } // 캡슐은 바닥에 남음(임시)
-    else { g.vy = Math.min(260, g.vy + 420 * dt); g.y += g.vy * dt; } // 보석: 중력 낙하 (임시 수치)
-    if (d < p.pickR) {
+    if (!g.mag && p.magnetR > 0 && d < p.magnetR) { g.mag = true; g.ms = F.mag0; }
+    if (g.mag) { g.ms = Math.min(F.magMax, g.ms + F.magAcc * dt); const s = Math.min(d, g.ms * dt); g.x += dx / d * s; g.y += dy / d * s; }
+    else { g.vy = Math.min(F.max, g.vy + F.acc * dt); g.y += g.vy * dt; }
+    if (Math.hypot(p.x - g.x, p.y - g.y) < p.pickR) {
       g.dead = true;
       if (g.kind) { S.pendCaps.push(g); sfx('gift'); buzz(40); }
       else { gainXp(g.v); sfx('gem'); }
-    } else if (!g.kind && g.y >= BOT) g.dead = true;
+    } else if (g.y >= BOT) g.dead = true;
   }
   S.gems = S.gems.filter(g => !g.dead); S.caps = S.caps.filter(g => !g.dead);
 }
@@ -2308,21 +2318,68 @@ function renderCharPopup() {
   } else uiLabel('잭팟 캐릭터 조각 10개로 해금 (' + (META.shards[id] || 0) + '/10)', CX, 760, 24, '#6a5a8a', 'center', 900);
 }
 
-// ---------- 핀볼 머신 ----------
-const PB_SC = 1.06, PB_Y = 122;
-const pbScr = (x, y) => ({ x: CX + (x - CX) * PB_SC, y: y * PB_SC + PB_Y });
+// ---------- 핀볼 머신 (6.12 D: 물리 시뮬레이션 → 목표 칸 경로 찾기 → 재생) ----------
+const HUBK = 1.06, HUBY = 122, HUBTX = 360 - 360 * HUBK, HUBTY = HUBY - 190 * HUBK; // 부록 B.7.2: 화면 = 1.06·기계 + (−21.6, −79.4)
+const pbScr = (x, y) => ({ x: HUBK * x + HUBTX, y: HUBK * y + HUBTY });
+const PBPHYS = { step: 1 / 120, maxSteps: 1400, start: { x: 632, y: 944 }, vy0: [-2200, -1850], g: 1500, laneExit: 120, kick: [220, 740], wallIn: 12, rest: .6, topIn: 14, laneWall: 606, ballR: 8, pinRest: .55, bumpRest: 1.3, stuckV: 40, stuckT: .3, nudge: { x: 90, y: 60 }, slotEntry: 40, slotEdge: 14, slotDamp: .85, slotFloor: 14, restAll: true, tries: 70, cachePer: 8, bendZone: 150, trail: 8 };
+const PBCACHE = [[], [], [], [], []];
 function resetMS() { MS = { counts: [0, 0, 0, 0, 0], fx: [], balls: [], mult: (MS && MS.mult) || 1, flash: [0, 0, 0, 0, 0], pushT: 0 }; if (!multOk(MS.mult)) MS.mult = 1; }
 const multOk = n => n === 1 || META.pinball >= PINBALL.unlock[n];
 function nextMult() { const C = PINBALL.counts; let i = C.indexOf(MS.mult); for (let k = 1; k <= C.length; k++) { const n = C[(i + k) % C.length]; if (multOk(n)) { MS.mult = n; return; } } }
-function pbPath(i) { // 결과 칸으로 가는 연출 경로: 발사 레인 → 아치 → 핀 사이 지그재그 → 칸
-  const tx = MB.x0 + (i + .5) * SLOT_W, P = [[632, 945, 1100], [632, 560, 1100]];
-  const aEnd = Math.PI * (1.15 + rand(0, .6));
-  for (let a = TAU - .1; a >= aEnd; a -= .14) P.push([ARC.cx + Math.cos(a) * (ARC.R - 16), ARC.cy + Math.sin(a) * (ARC.R - 16), 900]);
-  let x = P[P.length - 1][0];
-  const y0 = P[P.length - 1][1], rows = []; for (let y = 380; y < 840; y += 50) if (y > y0 + 20) rows.push(y);
-  rows.forEach((y, k) => { const f = (k + 1) / rows.length; x += (tx - x) * f * .55 + (k % 2 ? 1 : -1) * rand(10, 34) * (1 - f); x = Math.max(92, Math.min(588, x)); P.push([x, y, 330]); });
-  P.push([tx, 880, 330], [tx, 915, 260]);
-  return { P, k: 0, x: P[0][0], y: P[0][1], slot: i, tr: [] };
+const slotOf = x => Math.max(0, Math.min(PINBALL.slots.length - 1, Math.floor((x - MB.x0) / SLOT_W)));
+// 반사: 법선 n 방향으로 다가올 때 거울 반사 후 반발 계수를 곱함 (PBPHYS.restAll이면 속도 전체에, 아니면 법선 성분에만)
+function bounceV(vx, vy, nx, ny, e) {
+  const dot = vx * nx + vy * ny; if (dot <= 0) return [vx, vy]; // n = 벽 바깥쪽 방향
+  if (PBPHYS.restAll) return [(vx - 2 * dot * nx) * e, (vy - 2 * dot * ny) * e];
+  return [vx - (1 + e) * dot * nx, vy - (1 + e) * dot * ny];
+}
+// 실제 물리: 중력·벽(아치) 반발·핀/범퍼 반사. 경로·충돌 이벤트·떨어진 칸을 돌려줌
+function simBall(vy0, kick, seed) {
+  const P = PBPHYS, r = mulberry32(seed >>> 0), path = [], ev = [];
+  let x = P.start.x, y = P.start.y, vx = 0, vy = vy0, inLane = true, slow = 0;
+  const floorY = MB.slotY + MB.slotH - P.slotFloor, topY = ARC.cy - ARC.R + P.topIn, Rin = ARC.R - P.wallIn;
+  for (let k = 0; k < P.maxSteps; k++) {
+    vy += P.g * P.step;
+    if (inLane) { x = P.start.x; vx = 0; if (y < ARC.cy - P.laneExit) { inLane = false; vx = -kick; } } // 레인 출구에서 왼쪽으로 차 냄
+    x += vx * P.step; y += vy * P.step;
+    if (!inLane) {
+      // 아치(반원) 안쪽 벽
+      if (y < ARC.cy) { const dx = x - ARC.cx, dy = y - ARC.cy, d = Math.hypot(dx, dy); if (d > Rin) { const nx = dx / d, ny = dy / d; [vx, vy] = bounceV(vx, vy, nx, ny, P.rest); x = ARC.cx + nx * Rin; y = ARC.cy + ny * Rin; } }
+      if (y < topY) { y = topY; if (vy < 0) [vx, vy] = bounceV(vx, vy, 0, -1, P.rest); }
+      const left = MB.x0 + P.wallIn, right = y > LANE_TOP ? P.laneWall : 650 - P.wallIn; // 레인 출구 아래로 내려오면 레인 왼쪽 벽이 오른쪽 벽
+      if (x < left) { x = left; if (vx < 0) [vx, vy] = bounceV(vx, vy, -1, 0, P.rest); }
+      if (x > right) { x = right; if (vx > 0) [vx, vy] = bounceV(vx, vy, 1, 0, P.rest); }
+      for (const o of PINS.concat(BUMPERS)) {
+        const bump = BUMPERS.includes(o), rr = o.r + P.ballR, dx = x - o.x, dy = y - o.y, d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr) continue;
+        const d = Math.sqrt(d2) || 1, nx = dx / d, ny = dy / d, dot = vx * nx + vy * ny, e = bump ? P.bumpRest : P.pinRest;
+        if (dot < 0) { [vx, vy] = bounceV(vx, vy, -nx, -ny, e); ev.push({ k, kind: bump ? 'bump' : 'pin', o: bump ? BUMPERS.indexOf(o) : -1, x, y }); }
+        x = o.x + nx * rr; y = o.y + ny * rr;
+      }
+      // 핀 위에서 멈추면 살짝 굴려 떨어뜨림
+      if (Math.hypot(vx, vy) < P.stuckV) { slow += P.step; if (slow >= P.stuckT) { vx = (r() < .5 ? -1 : 1) * P.nudge.x; vy = -P.nudge.y; slow = 0; } } else slow = 0;
+      // 칸 입구: 칸 가장자리 14px 안으로 가두고 가로 속도 감쇠
+      if (y > MB.slotY - P.slotEntry) { const i = slotOf(x), x0 = MB.x0 + i * SLOT_W + P.slotEdge, x1 = MB.x0 + (i + 1) * SLOT_W - P.slotEdge; x = Math.max(x0, Math.min(x1, x)); vx *= P.slotDamp; }
+      if (y >= floorY) { path.push(x, floorY); return { path, ev, slot: slotOf(x) }; }
+    }
+    path.push(x, y);
+  }
+  return { path, ev, slot: slotOf(x) };
+}
+// 목표 칸에 떨어지는 경로 찾기: 캐시 → 최대 70번 시뮬 → 못 찾으면 가장 가까운 경로를 칸 입구 위 150px에서만 휘게
+function planBall(slot) {
+  const P = PBPHYS;
+  if (PBCACHE[slot].length) return PBCACHE[slot].shift();
+  let best = null, bd = 1e9;
+  for (let i = 0; i < P.tries; i++) {
+    const res = simBall(rand(...P.vy0), rand(...P.kick), Math.floor(rand(1e9)));
+    if (res.slot === slot) return res;
+    if (PBCACHE[res.slot].length < P.cachePer) PBCACHE[res.slot].push(res);
+    const d = Math.abs(res.slot - slot); if (d < bd) { bd = d; best = res; }
+  }
+  const tx = MB.x0 + (slot + .5) * SLOT_W, yEnd = MB.slotY - P.slotEntry, yStart = yEnd - P.bendZone, p = best.path.slice();
+  for (let k = 0; k < p.length; k += 2) { const y = p[k + 1]; if (y > yStart) { const f = Math.min(1, (y - yStart) / P.bendZone); p[k] += (tx - p[k]) * f * f; } }
+  return { path: p, ev: best.ev, slot };
 }
 function pbFire() {
   const c = S.cyc, mult = MS.mult;
@@ -2333,33 +2390,40 @@ function pbFire() {
   const sl = PINBALL.slots[i];
   if (sl.id === 'xp') addPxp(sl.v * mult);
   else { if (!c.jp) c.jp = spinJackpot(META.firstCycle); payOut(c.jp.rewards, mult); c.gifts++; }
-  c.fired++; saveMeta(); // 결과는 발사 순간 확정·저장, 공 움직임은 연출
-  MS.balls.push(pbPath(i)); MS.pushT = .1; sfx('launch');
+  c.fired++; saveMeta(); // 결과는 발사 순간 확정·저장, 공 움직임은 물리 경로 재생
+  const plan = planBall(i);
+  MS.balls.push({ ...plan, k: 0, x: plan.path[0], y: plan.path[1], tr: [], ei: 0 }); MS.pushT = .12; sfx('launch');
   return true;
+}
+function pbSpark(x, y, c, n, spd = 160) { for (let i = 0; i < n; i++) { const a = rand(TAU), v = rand(.4, 1) * spd; MS.fx.push({ k: 'dot', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, c, t: .4, T: .4 }); } }
+// 재생: 경로를 1/120초 간격 그대로
+function stepBall(b, dt) {
+  b.acc = (b.acc || 0) + dt;
+  while (b.acc >= PBPHYS.step && b.k < b.path.length / 2 - 1) {
+    b.acc -= PBPHYS.step; b.k++;
+    while (b.ei < b.ev.length && b.ev[b.ei].k <= b.k) {
+      const e = b.ev[b.ei++];
+      if (e.kind === 'bump') { const B = BUMPERS[e.o]; B.hit = .15; sfx('bump'); S.shk = Math.max(S.shk || 0, 4); pbSpark(B.x, B.y, B.c, 7, 220); MS.fx.push({ k: 'ring', x: B.x, y: B.y, r: B.r + 20, c: B.c, t: .3, T: .3 }); }
+      else if (rand() < .5) pbSpark(e.x, e.y, '#ffe14a', 2, 90);
+    }
+  }
+  b.x = b.path[b.k * 2]; b.y = b.path[b.k * 2 + 1];
+  b.tr.push(b.x, b.y); if (b.tr.length > PBPHYS.trail * 2) b.tr.splice(0, 2);
 }
 function pbUpdate(dt) {
   MS.pushT = Math.max(0, MS.pushT - dt);
+  if (S.shk > 0) S.shk = Math.max(0, S.shk - 40 * dt);
   for (let i = 0; i < 5; i++) MS.flash[i] = Math.max(0, MS.flash[i] - dt);
   for (const b of BUMPERS) b.hit = Math.max(0, b.hit - dt);
-  for (const f of MS.fx) f.t -= dt; MS.fx = MS.fx.filter(f => f.t > 0);
+  for (const f of MS.fx) { f.t -= dt; if (f.vx !== undefined) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 300 * dt; } }
+  MS.fx = MS.fx.filter(f => f.t > 0);
   const c = S.cyc;
-  if (c) {
+  if (c && !c.stopped) {
     c.fireT -= dt;
-    if (IN.push && c.fireT <= 0 && !c.stopped) { if (pbFire()) c.fireT = PINBALL.dropEvery; else c.stopped = true; }
+    if (IN.push && c.fireT <= 0) { if (pbFire()) c.fireT = PINBALL.dropEvery; else c.stopped = true; } // 누르면 즉시 1발, 이후 0.15초마다
     if (!IN.push && c.fired > 0) c.stopped = true;
   }
-  for (const b of MS.balls) {
-    let mv = 0;
-    while (b.k < b.P.length - 1) {
-      const [x1, y1] = b.P[b.k + 1], spd = b.P[b.k + 1][2], d = Math.hypot(x1 - b.x, y1 - b.y), step = spd * dt - mv;
-      if (step <= 0) break;
-      if (d <= step) { mv += d; b.x = x1; b.y = y1; b.k++; if (b.y > 370) sfx('click'); continue; }
-      b.x += (x1 - b.x) / d * step; b.y += (y1 - b.y) / d * step; mv += step; break;
-    }
-    b.tr.push(b.x, b.y); if (b.tr.length > 16) b.tr.splice(0, 2);
-    for (const B of BUMPERS) if (Math.hypot(B.x - b.x, B.y - b.y) < B.r + 14) B.hit = .15;
-    if (b.k >= b.P.length - 1 && !b.done) { b.done = true; pbLand(b.slot); }
-  }
+  for (const b of MS.balls) { stepBall(b, dt); if (b.k >= b.path.length / 2 - 1 && !b.done) { b.done = true; pbLand(b.slot); } }
   MS.balls = MS.balls.filter(b => !b.done);
   if (c && c.stopped && !MS.balls.length && !S.fly.length && !c.jpDone) {
     if (c.gifts && !S.jp) { S.jp = { t: 0, ...c.jp, mult: MS.mult, gifts: c.gifts }; S.mode = 'machine'; sfx('gift'); }
@@ -2367,16 +2431,20 @@ function pbUpdate(dt) {
   }
 }
 function pbLand(i) {
-  const sl = PINBALL.slots[i], m = MS.mult, s = pbScr(MB.x0 + (i + .5) * SLOT_W, MB.slotY + 40);
+  const sl = PINBALL.slots[i], m = MS.mult, cx = MB.x0 + (i + .5) * SLOT_W, s = pbScr(cx, MB.slotY + 40);
   MS.counts[i]++; MS.flash[i] = .35;
-  if (sl.id === 'xp') { // 경험치 1점 = 아이콘 1개가 상단 경험치 바로 날아감
+  if (sl.id === 'xp') { // 경험치 1점 = 아이콘 1개가 상단 경험치 바(404, 54)로 날아감
     const n = sl.v * m, shown = Math.min(n, 30), per = n / shown;
-    for (let k = 0; k < shown; k++) { S.fly.push({ k: 'gem', x0: s.x + rand(-20, 20), y0: s.y, tx: 230 + rand(-30, 30), ty: 150, t: -k * .03, T: .6, arrive: () => pbXp(per) }); }
+    MS.fx.push({ k: 'txt', s: '+' + n, x: cx, y: MB.slotY - 30, c: '#9fe0ff', t: .8, T: .8 }); pbSpark(cx, MB.slotY + 20, sl.color, 10);
+    for (let k = 0; k < shown; k++) S.fly.push({ k: 'gem', x0: s.x + rand(-20, 20), y0: s.y, tx: 404, ty: 54, t: -k * .03, T: rand(.55, .67), arrive: () => pbXp(per) });
     sfx('coin');
-  } else { MS.fx.push({ k: 'txt', s: '잭팟!', x: MB.x0 + (i + .5) * SLOT_W, y: MB.slotY - 40, c: '#ff6ab0', t: 1, T: 1 }); sfx('gift'); buzz(40); }
+  } else {
+    MS.fx.push({ k: 'txt', s: '잭팟!', x: cx, y: MB.slotY - 40, c: '#ff6ab0', t: 1, T: 1 }); pbSpark(cx, MB.slotY + 20, '#ff6ab0', 22, 260);
+    MS.fx.push({ k: 'ring', x: cx, y: MB.slotY + 40, r: 160, c: '#ff6ab0', t: .5, T: .5 }); S.shk = 12; S.pbFlash = .3; sfx('gift'); buzz(60);
+  }
 }
 function pbXp(v) { S.dXp += v; while (S.dXp >= PLV.need(S.dLv)) { S.dXp -= PLV.need(S.dLv); S.dLv++; S.lvFx = 1.2; sfx('lvup'); } }
-function endCycle() { META.firstCycle = false; saveMeta(); S.cyc = null; S.jp = null; S.mode = 'select'; MS.counts = [0, 0, 0, 0, 0]; S.dLv = META.plv; S.dXp = META.pxp; }
+function endCycle() { META.firstCycle = false; saveMeta(); S.cyc = null; S.jp = null; S.mode = 'select'; MS.counts = [0, 0, 0, 0, 0]; S.dLv = META.plv; S.dXp = META.pxp; if (IN.push && META.pinball >= MS.mult) { S.cyc = { fired: 0, gifts: 0, fireT: 0, jp: null }; S.mode = 'machine'; } }
 function jpTimes(j) { const s1 = .7 + .6, s2 = s1 + .4, s3 = s2 + .4 + (j.reels[0] === j.reels[1] ? .8 : 0); return [s1, s2, s3]; }
 function jpUpdate(dt) {
   const j = S.jp; if (!j) return; j.t += dt;
@@ -2410,7 +2478,8 @@ function renderPinball() {
   const canPush = META.pinball >= MS.mult;
   uiBtn({ x: 534, y: 104, w: 170, h: 112 }, 'PUSH', IN.push ? 'yellow' : 'red', 40, !canPush && !busy);
   if (canPush || busy) hit({ x: 534, y: 104, w: 170, h: 112 }, () => { IN.push = true; if (!S.cyc) { S.cyc = { fired: 0, gifts: 0, fireT: 0, jp: null }; S.mode = 'machine'; } });
-  ctx.save(); ctx.translate(CX, PB_Y); ctx.scale(PB_SC, PB_SC); ctx.translate(-CX, 0); drawCabinet(); ctx.restore();
+  ctx.save(); if (S.shk > 0) ctx.translate(Math.round(rand(-1, 1) * S.shk / 2), Math.round(rand(-1, 1) * S.shk / 2)); ctx.translate(HUBTX, HUBTY); ctx.scale(HUBK, HUBK); drawCabinet(); ctx.restore();
+  if (S.pbFlash > 0) { S.pbFlash -= 1 / 60; ctx.fillStyle = 'rgba(255,255,255,' + Math.max(0, S.pbFlash) + ')'; ctx.fillRect(0, 0, W, H); }
   if (!canPush && !busy) uiTxt('핀볼이 부족해요 — 전투에서 모아요', CX, 300, 22, UI.cream);
   drawTabBar(); drawFly();
   if (S.jp) renderJackpot();
@@ -2561,9 +2630,9 @@ const SFX = {
   lose: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * .97, .25, .1, i * .18)), hurt: () => { tone('sawtooth', 220, 80, .15, .1); noise(.08, .08, 900); },
   launch: () => { noise(.06, .05, 5000); tone('square', 440, 880, .08, .04); }, coin: () => { tone('square', 988, 988, .05, .05); tone('square', 1319, 1319, .1, .05, .05); },
   gift: () => [784, 988, 1175].forEach((f, i) => tone('triangle', f, f, .12, .08, i * .06)), reel: () => tone('square', 1500, 1500, .02, .04),
-  click: () => tone('square', 600, 600, .03, .04), rise: () => tone('triangle', 300, 900, .3, .08),
+  click: () => tone('square', 600, 600, .03, .04), bump: () => { tone('square', 520, 880, .06, .07); noise(.04, .05, 4000); }, rise: () => tone('triangle', 300, 900, .3, .08),
 };
-const SFX_GAP = { hit: .03, shot: .04, gem: .03, kill: .04, click: .03, reel: .05 };
+const SFX_GAP = { bump: .04, hit: .03, shot: .04, gem: .03, kill: .04, click: .03, reel: .05 };
 function sfx(name) {
   if (!AC || !SFX[name] || IN.bot) return;
   const now = AC.currentTime; if (now - (SFX_LAST[name] || -1) < (SFX_GAP[name] || .06)) return; SFX_LAST[name] = now; // 같은 소리 최소 간격
