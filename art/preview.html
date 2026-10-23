@@ -1,0 +1,35 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>ZomXPit 아트 시트</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#1a1420;color:#fff;font-family:"Noto Sans KR",sans-serif}canvas{display:block;margin:0 auto;image-rendering:pixelated;max-width:100%}</style></head>
+<body><canvas id="c" width="720" height="3700"></canvas>
+<script>const cv=document.getElementById('c'), ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false;</script>
+<script src="zomxpit-art.js"></script>
+<script>
+window.onerror=(m)=>{document.title='ERR '+m};
+let y=0;
+const head=(t)=>{ctx.fillStyle='#ffd23a';ctx.font='900 26px '+FONT;ctx.textAlign='left';ctx.fillText(t,20,y+=44);y+=10;};
+const lab=(t,x,yy)=>{ctx.fillStyle='#e6dcff';ctx.font='700 14px '+FONT;ctx.textAlign='center';ctx.fillText(t,x,yy);};
+ctx.fillStyle='#2a1f4a';ctx.fillRect(0,0,720,3700);
+head('좀비 · 보스 (ZART, 걸음 2프레임)');
+const ids=Object.keys(ZART); let x=60;
+for(const id of ids){ const s=ZART[id](0); const ps=(s.k||1)>=2?1.5:3; blit(s,x,y+50,ps/(s.k||1)*(s.k||1)); lab(id,x,y+110); x+=90; if(x>680){x=60;y+=140;} }
+y+=150; head('사람 캐릭터 (LOOK: 정면 / 뒷모습)'); x=60;
+for(const id of HUMAN_IDS){ blit(humanSpr(LOOK[id],'front'),x,y+40,3); blit(humanSpr(LOOK[id],'back'),x+40,y+40,3); lab(id,x+20,y+100); x+=170; if(x>680){x=60;y+=130;} }
+y+=10; head('볼 (uiBall, 기능 색·문양)'); x=50;
+for(const id of Object.keys(FN)){ uiBall(x,y+30,26,[id]); lab(FN[id].name,x,y+75); x+=66; if(x>690){x=50;y+=100;} }
+y+=110; uiBall(80,y+20,30,['fire','spark']); uiBall(160,y+20,30,['frost','poison','bomb']); lab('융합 볼',120,y+70);
+y+=90; head('UI 키트'); uiPanel(20,y,320,140); uiBtn({x:40,y:y+30,w:260,h:80},'게임 실행','orange',30); uiBtn({x:370,y,w:150,h:80},'확인','green',28); uiBtn({x:540,y,w:150,h:80},'취소','gray',28);
+uiRibbon(530,y+130,300,'볼 캡슐!','pink',30); y+=200; uiGift(80,y,40); uiCoin(180,y,26); uiStar(260,y,26,'#ffd23a'); uiHeart(330,y,26); uiLeague(420,y,30,2); uiLock(500,y,26); uiCheck(580,y,22);
+y+=60; head('배경 (RUINS 로비 / MENU_BG / BG 전장)'); ctx.drawImage(RUINS,20,y,220,391); ctx.drawImage(MENU_BG,250,y,220,391); ctx.drawImage(BG,480,y,220,391);
+
+y+=420; head('전투 화면 구성 (BG + drawWall + drawDeck + 슬롯 줄 예시)');
+ctx.save(); ctx.translate(0,y); const s0=0.5; ctx.scale(s0,s0);
+ctx.drawImage(BG,0,0,W,H); drawWall(0,150); drawWall(570,150); drawDeck(); ctx.fillStyle='#1e1640'; ctx.fillRect(0,SLOTY+8,W,H-SLOTY-8);
+for(let i=0;i<8;i++){ const x=10+i*88; pxBox(x,SLOTY+24,80,80,'#4b3a90'); if(i<3) uiBall(x+40,SLOTY+64,26,[['fire','frost','split'][i]]); }
+['knight','shield','archer','knight','boar'].forEach((t,i)=>blit(ZART[t](i%2),220+i*70,300,3));
+['knight','knight','priest','knight','bomber'].forEach((t,i)=>blit(ZART[t]((i+1)%2),220+i*70,370,3));
+blit(humanSpr(LOOK.hero,'back'),360,820,3); drawBall(330,600,9,[]); drawBall(400,520,12,['fire']); drawBall(300,450,12,['frost','spark']);
+ctx.restore(); ctx.save(); ctx.translate(360,y); ctx.scale(s0,s0); drawCabinet(); ctx.restore();
+lab('전투 화면 (50%)',180,y+660); lab('핀볼 머신 drawCabinet (50%)',540,y+660);
+document.title='OK';
+</script></body></html>
