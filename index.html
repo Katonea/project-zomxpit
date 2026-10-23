@@ -993,11 +993,11 @@ function startBalls(picks) {
   return fns.map(f => newBall([f]));
 }
 function reset(levelId, o = {}) {
-  const L = LEVELS[levelId - 1], st = baseStats(), ch = CHAR[META.sel] || CHAR.hero;
+  const L = o.raid ? raidLevel(o.raid.lg) : LEVELS[levelId - 1], st = baseStats(), ch = CHAR[META.sel] || CHAR.hero;
   const p = { x: CX, y: BOT - 90, r: PLAYER.r, hp: st.hp, maxHp: st.hp, atk: st.atk, def: st.def, base: st, inv: 0, aim: -Math.PI / 2, hurtT: 0, walk: 0, shield: 0 };
   S = {
     mode: 'play', t: 0, L, level: levelId, p, ch, tutorial: !!o.tutorial, saving: o.saving !== false,
-    fieldW: FIELD.startW, fieldFrom: FIELD.startW, fieldTo: FIELD.startW, fieldT: 0,
+    raid: o.raid || null, fieldW: o.raid ? FIELD.openW : FIELD.startW, fieldFrom: FIELD.startW, fieldTo: FIELD.startW, fieldT: 0,
     normals: [], owned: startBalls(o.picks), items: [], slots: [], balls: [], enemies: [], forms: [], shots: [], haz: [], gems: [], caps: [], fx: [], nums: [], timers: [],
     wave: 1, waveT: 0, spawnT: .5, phase: 'waves', wavesDone: 0, eliteT: 0, bossT: 0, boss: null, banner: null,
     lv: 1, xp: 0, pendLv: 0, pendCaps: [], fireT: 0, nextSlot: 0, hs: 0, shake: 0, shakeAmp: 0, eid: 0, kills: 0,
@@ -1288,7 +1288,7 @@ function kill(e, o = {}) {
   for (let i = 0; i < 6; i++) { const a = rand(TAU); addFx({ k: 'gib', x: e.x, y: e.y, vx: Math.cos(a) * rand(80, 200), vy: Math.sin(a) * rand(80, 200) - 80, t: 0, T: .45, c: i % 2 ? '#8ab84a' : '#6a9838' }); }
   const pr = o.ball ? o.ball.pr : null;
   if (e.boss) return bossDown(e);
-  let xp = e.xp * RULE.mobXp * (e.elite ? 4 : e.big ? 2 : 1);
+  let xp = e.xp * RULE.mobXp * (e.elite ? 4 : e.big ? 2 : 1) * (S.raid ? RAID.xpMul : 1);
   if (pr && pr.v.lucky) xp *= 1 + pr.v.lucky.pct;
   S.gems.push({ x: e.x, y: e.y, vy: -80, v: xp });
   if (pr && pr.v.nova) area(e.x, e.y, pr.v.nova.r, pr.dmg * pr.v.nova.pct, FN.nova.color);
@@ -1460,6 +1460,7 @@ function bossAct(e, dt) {
   if (e.guardT > 0) e.guardT -= dt;
   if (B.heal) { e.healT -= dt; if (e.healT <= 0) { e.healT = B.heal.every; for (const o of S.enemies) if (!o.dead && Math.hypot(o.x - e.x, o.y - e.y) < B.heal.r) { o.hp = Math.min(o.maxHp, o.hp + o.maxHp * B.heal.pct); } addFx({ k: 'ring', x: e.x, y: e.y, t: 0, T: .5, c: '#7dff8a', R: B.heal.r }); } }
   if (B.rod) e.rodA += B.rod.spin * dt;
+  if (B.raid) raidFire(e, dt);
   // 근접
   const gap = dist - e.r - p.r;
   if (gap <= RULE.meleeR) { e.atkT += dt; if (e.atkT >= e.atkEvery) { e.atkT = 0; hurtPlayer(e.dmg); } } else e.atkT = Math.min(e.atkT, e.atkEvery * .5);
@@ -1469,6 +1470,7 @@ function bossAct(e, dt) {
 // ===================== 11. update (고정 스텝 120Hz) =====================
 function update(dt) {
   if (MENU_MODES.includes(S.mode)) return menuUpdate(dt);
+  if (S.mode === 'match') { S.matchT += dt; if (S.matchT >= 1.5) S.mode = 'play'; return; }
   if (S.mode === 'title') return;
   if (S.mode !== 'play') { if (S.modal) { S.modal.t += dt; if (S.mode === 'freeup' && S.modal.t >= S.modal.spin) finishFreeUp(); } return; }
   if (S.ko) S.ko.t += dt;
@@ -1732,7 +1734,7 @@ function updateItems(dt) {
 }
 function xpNeed(lv) { return RULE.xpBase + RULE.xpPer * lv; }
 function gainXp(v) { S.xp += v; while (S.xp >= xpNeed(S.lv)) { S.xp -= xpNeed(S.lv); S.lv++; S.pendLv++; } }
-function waveLen(w) { return w <= 2 ? 20 : 25; }
+function waveLen(w) { return S.raid ? RAID.waveLen : w <= 2 ? 20 : 25; }
 function updateWaves(dt) {
   const L = S.L;
   if (S.phase === 'waves') {
@@ -1741,15 +1743,17 @@ function updateWaves(dt) {
     if (S.waveT >= waveLen(S.wave)) {
       S.wavesDone = S.wave;
       if (S.wave === L.midAfter && !S.midDone) { S.midDone = true; S.phase = 'mid'; spawnBoss(L.mid, false); } // 웨이브 midAfter 도달 → 중간 보스 (웨이브 멈춤)
-      else if (S.wave >= L.waves) { S.phase = 'bossWait'; S.bossT = RULE.bossDelay; }
+      else if (S.wave >= L.waves) { S.phase = 'bossWait'; S.bossT = S.raid ? RAID.bossDelay : RULE.bossDelay; }
       else { S.wave++; S.waveT = 0; }
     }
   } else if (S.phase === 'bossWait') {
-    S.bossT -= dt; if (S.bossT <= 0) { S.phase = 'boss'; spawnBoss(L.boss, true); }
+    S.bossT -= dt; if (S.bossT <= 0) { S.phase = 'boss'; if (S.raid) spawnRival(); else spawnBoss(L.boss, true); }
   }
+  if (S.raid && S.t >= RAID.time && S.mode === 'play' && S.winT <= 0) endBattle(false); // 60초 제한
 }
 function endBattle(win) {
-  if (S.mode === 'result') return;
+  if (S.mode === 'result' || S.mode === 'verdict') return;
+  if (S.raid) { S.modal = null; return raidEnd(win); }
   const L = S.L, prog = win ? 1 : S.wavesDone / L.waves;
   const first = win && (META.best || 0) < L.id;
   const pin = win ? (first ? 20 + 2 * L.id : 8 + L.id) : Math.floor((8 + L.id) * prog * .5);
@@ -1826,6 +1830,7 @@ function drawEnemy(e) {
   if (e.elite || e.boss) { ctx.globalAlpha = .25 + .15 * Math.sin(S.t * 8); ctx.fillStyle = '#ff3030'; ctx.beginPath(); ctx.ellipse(x, e.y + e.r * .9, e.r * 1.2, e.r * .4, 0, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
   if (e.boss && BOSS[e.bid].rod) { const a = e.rodA, L = e.r + BOSS[e.bid].rod.len; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(a) * L, e.y + Math.sin(a) * L); ctx.strokeStyle = UI.ink; ctx.lineWidth = 16; ctx.stroke(); ctx.strokeStyle = '#ff8a2a'; ctx.lineWidth = 9; ctx.stroke(); ctx.lineCap = 'butt'; }
   spr(SPR[e.type + stTint(e) + f], x, y, ps);
+  if (e.boss && BOSS[e.bid].raid) { const blink = e.rest > 0 && Math.floor(S.t * 12) % 2; ctx.save(); ctx.translate(x, y - e.r * 1.3); ctx.rotate(e.spin || 0); for (let k = 0; k < RAID.leagues[S.raid.lg].tier + 1; k++) { ctx.rotate(TAU / (RAID.leagues[S.raid.lg].tier + 1)); ctx.fillStyle = UI.ink; ctx.fillRect(0, -6, 30, 12); ctx.fillStyle = blink ? '#fff' : '#c8d0dc'; ctx.fillRect(2, -4, 26, 8); } ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fillStyle = blink ? '#fff' : S.raid.bot.hue; ctx.fill(); uiLine(UI.ink, 4); ctx.restore(); }
   if (e.guardT > 0) { ctx.globalAlpha = .5; ctx.beginPath(); ctx.arc(x, y, e.r + 10, .2, Math.PI - .2); ctx.strokeStyle = '#a8d4f4'; ctx.lineWidth = 8; ctx.stroke(); ctx.globalAlpha = 1; }
   if (e.st.stun) for (let i = 0; i < 3; i++) { const a = S.t * 5 + i * TAU / 3; uiStar(x + Math.cos(a) * e.r * .7, y - e.r * 1.2 + Math.sin(a) * 4, 6, UI.gold); }
   if (!e.boss && (e.elite || e.big) && e.hp < e.maxHp) uiBar(x - e.r, y - e.r * 1.6 - 8, e.r * 2, 12, e.hp / e.maxHp, ['#ff6a6a', '#d8302a']);
@@ -1879,7 +1884,7 @@ function drawHUD() {
   uiTxt(Math.ceil(p.hp) + ' / ' + Math.round(p.maxHp) + (p.shield > 1 ? ' +' + Math.round(p.shield) : ''), 164, 30, 16);
   uiBar(64, 40, 250, 22, S.xp / xpNeed(S.lv), ['#c8f0ff', '#9fe0ff']);
   uiTxt('Lv' + S.lv, 38, 58, 20, UI.gold);
-  uiTxt(S.phase === 'mid' || S.phase === 'boss' ? '보스전' : '웨이브 ' + S.wave + '/' + S.L.waves, 450, 32, 22);
+  uiTxt(S.raid ? '침략 ' + Math.max(0, Math.ceil(RAID.time - S.t)) + '초' : S.phase === 'mid' || S.phase === 'boss' ? '보스전' : '웨이브 ' + S.wave + '/' + S.L.waves, 450, 32, 22);
   const t = Math.floor(S.t); uiTxt(Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'), 450, 60, 18, UI.cream);
   pxBox(628, 6, 80, 58, '#4b3a90'); ctx.save(); ctx.translate(668, 35); for (let k = 0; k < 8; k++) { ctx.rotate(Math.PI / 4); ctx.fillStyle = '#e8e2f5'; ctx.fillRect(-4, -18, 8, 8); } ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fillStyle = '#4b3a90'; ctx.fill(); ctx.restore();
   hit({ x: 616, y: 0, w: 104, h: 92 }, () => { if (S.mode === 'play') openSettings(); });
@@ -2036,10 +2041,11 @@ function render() {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = '#140f0b'; ctx.fillRect(0, 0, W, H);
   if (S.mode === 'title') renderTitle();
+  else if (S.mode === 'match') renderMatch();
   else if (MENU_MODES.includes(S.mode) || (S.mode === 'settings' && MENU_MODES.includes(S.setPrev))) ({ lobby: renderLobby, prep: renderPrep, balls: renderBalls, chars: renderChars, arena: renderArena, select: renderPinball, machine: renderPinball })[S.mode === 'settings' ? S.setPrev : S.mode]();
   else {
     renderBattle();
-    const o = { pause: renderPause, result: renderResult, levelup: renderLevelUp, fusion: renderFusion, freeup: renderFreeUp, itemcap: renderItemCap }[S.mode];
+    const o = { pause: renderPause, verdict: renderVerdict, result: S.raid ? renderRaidResult : renderResult, levelup: renderLevelUp, fusion: renderFusion, freeup: renderFreeUp, itemcap: renderItemCap }[S.mode];
     if (o) o();
     if (S.mode === 'settings') renderSettings();
     drawBattleHint();
@@ -2505,12 +2511,146 @@ function musicTick() {
   }
 }
 
+// ===================== 침략 (비동기 PvP, 상대는 가상 봇) =====================
+// 등급별 가상 유저 3명씩. balls = 볼 구성 (융합 볼은 기능 여러 개). hue = 상대 옷 색
+const RAID_BOTS = [
+  { id: 'cloud', name: '구름이', tier: 1, hue: '#7fd3f5', balls: [['frost'], ['spark']] },
+  { id: 'candy', name: '솜사탕', tier: 1, hue: '#ff9ac8', balls: [['poison'], ['split']] },
+  { id: 'mush', name: '버섯돌이', tier: 1, hue: '#e8731a', balls: [['fire'], ['wind']] },
+  { id: 'thorn', name: '가시', tier: 2, hue: '#8bd65a', balls: [['pierce', 'poison'], ['frost'], ['bomb']] },
+  { id: 'lava', name: '용암이', tier: 2, hue: '#ff5a3a', balls: [['fire', 'bomb'], ['spark'], ['giant']] },
+  { id: 'moon', name: '달빛', tier: 2, hue: '#9a5ad0', balls: [['curse', 'homing'], ['frost'], ['vamp']] },
+  { id: 'iron', name: '철갑', tier: 3, hue: '#8a90a8', balls: [['pierce', 'giant', 'bomb'], ['spark', 'frost'], ['fire']] },
+  { id: 'ice', name: '얼음이', tier: 3, hue: '#bfe9ff', balls: [['frost', 'homing', 'split'], ['poison', 'curse'], ['wind']] },
+  { id: 'bolt', name: '번개', tier: 3, hue: '#ffe25a', balls: [['spark', 'fire', 'bomb'], ['pierce', 'homing'], ['giant']] },
+];
+const RAID_MOB = { w: { knight: 3, boar: 1, shield: 1, archer: 1 }, forms: ['row', 'wedge', 'block'], r: 48, chase: 30, melee: 10 }; // 임시: 침략 웨이브 구성·상대 몸 크기
+const today = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+const leagueOf = rp => { let k = 0; RAID.leagues.forEach((l, i) => { if (rp >= l.min) k = i; }); return k; };
+function dailyBot(tier) { // 날짜 시드로 매일 등급별 1명
+  const r = mulberry32([...today()].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0), L = RAID_BOTS.filter(b => b.tier === tier);
+  for (let i = 0; i < tier; i++) r(); return L[Math.floor(r() * L.length)];
+}
+function ticketTick() { // 최대 5, 가득 찬 상태에서 처음 쓴 순간부터 30분마다 1개
+  const P = 30 * 60000;
+  while (META.tickets < 5 && META.ticketT && Date.now() - META.ticketT >= P) { META.tickets++; META.ticketT += P; }
+  if (META.tickets >= 5) META.ticketT = 0;
+}
+const raidOpen = () => (META.best || 0) >= 2; // 임시: 튜토리얼 순서(최고 레벨 2+ 침략 안내)에 맞춤
+function startRaid(picks) {
+  ticketTick(); if (META.tickets <= 0) return;
+  if (META.tickets >= 5) META.ticketT = Date.now();
+  META.tickets--; saveMeta();
+  const lg = leagueOf(META.rp), L = RAID.leagues[lg], bot = dailyBot(L.tier);
+  reset(0, { picks, raid: { lg, bot } });
+  S.mode = 'match'; S.matchT = 0;
+}
+function raidLevel(lg) { const L = RAID.leagues[lg]; return { id: 0, name: L.an, hpMul: RAID.mobMul[L.tier - 1], bossMul: 1, dmgMul: 1, waves: RAID.waves, midAfter: 99, boss: 'rival', w: RAID_MOB.w, forms: RAID_MOB.forms }; }
+function spawnRival() {
+  const R = S.raid, b = R.bot, L = RAID.leagues[R.lg];
+  BOSS.rival = { name: b.name, r: RAID_MOB.r, hp: RAID.bossHp[L.tier - 1], xp: 0, melee: RAID_MOB.melee, atkEvery: 2, chase: RAID_MOB.chase, raid: true };
+  for (const f of [0, 1]) for (const st of ['', ...Object.keys(TINT)]) SPR['rival' + (st ? '_' + st : '') + (f ? '1' : '')] = rivalSprite({ id: b.id, hue: b.hue, tier: b.tier }, st, f);
+  const e = spawnBoss('rival', true);
+  e.hp = e.maxHp = BOSS.rival.hp; // 침략 보스 HP는 등급별 고정
+  e.pat = 0; e.patT2 = RAID.patLen; e.rest = 0; e.fireT2 = 0; e.spin = 0;
+  S.banner = { t: 2, T: 2, name: b.name + ' (봇)', sub: '침략 상대' };
+}
+// 상대 포탑: 상대 볼 구성대로 탄막. 패턴 4초 쏘고 0.7초 쉼(깜빡임 = 예고) 후 다음 패턴
+function raidFire(e, dt) {
+  const R = S.raid, L = RAID.leagues[R.lg], tier = L.tier, pats = L.pats, p = S.p;
+  if (e.rest > 0) { e.rest -= dt; if (e.rest <= 0) { e.pat = (e.pat + 1) % pats.length; e.patT2 = RAID.patLen; } return; }
+  e.patT2 -= dt; if (e.patT2 <= 0) { e.rest = RAID.patRest; return; }
+  const id = pats[e.pat], P = RAID.pat[id];
+  e.spin += RAID.spin * dt;
+  e.fireT2 -= dt; if (e.fireT2 > 0) return;
+  e.fireT2 = RAID.fireEvery[tier - 1] * P.gap;
+  const ball = R.bot.balls[randi(0, R.bot.balls.length - 1)], fn = ball[0];
+  const dmg = RAID.dmg[tier - 1] * .85 * L.dmg * P.dmg * (1 + .25 * (ball.length - 1)), aim = Math.atan2(p.y - e.y, p.x - e.x);
+  const fx = ball.includes('frost') ? 'slow' : ball.some(f => f === 'poison' || f === 'fire') ? 'dot' : ball.includes('curse') ? 'curse' : null;
+  const shoot = (a, spd = RAID.ballSpd) => S.shots.push({ k: 'star', x: e.x, y: e.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, r: 8, dmg, c: FN[fn].color, fx });
+  if (id === 'spiral') { const n = tier + 1; for (let i = 0; i < n; i++) shoot(e.spin + i * TAU / n, RAID.ballSpd * RAID.spiralSpd); }
+  else if (id === 'fan') for (let i = 0; i < P.n; i++) shoot(aim + (i - (P.n - 1) / 2) * P.spread / (P.n - 1) * 2);
+  else if (id === 'aimall') for (let i = 0; i < P.n; i++) shoot(i * TAU / P.n + e.spin * .2);
+  else if (id === 'flower') for (let i = 0; i < 6; i++) shoot(e.spin * (i % 2 ? 1 : -1) + i * TAU / 6, RAID.ballSpd * .8);
+  else if (id === 'storm') for (let i = 0; i < P.n; i++) shoot(aim + rand(-.5, .5), RAID.ballSpd * rand(.8, 1.2));
+  sfx('shot');
+}
+function raidEnd(win) { // 침략 끝: 승리면 선택 화면(verdict), 패배면 결과
+  const R = S.raid, L = RAID.leagues[R.lg];
+  R.win = win; R.base = win ? RAID.pinball[L.tier - 1] : 1;
+  if (win) { S.mode = 'verdict'; S.modal = { t: 0 }; sfx('win'); return; }
+  raidSettle(null);
+}
+function raidSettle(choice) {
+  const R = S.raid, L = RAID.leagues[R.lg], lg0 = leagueOf(META.rp);
+  let pin = R.base, ball = null;
+  if (choice === 'spare') pin += RAID.sparePinball[L.tier - 1];
+  if (choice === 'kill') { const rar = RAID.dropRarity[L.tier - 1]; ball = rollBall(rar); }
+  if (S.saving) {
+    META.pinball += pin; if (ball) addBall(ball);
+    META.rp = Math.max(0, META.rp + (R.win ? RAID.win : -RAID.lose));
+    const lg1 = leagueOf(META.rp);
+    if (lg1 > (META.arenaMax || 0)) { for (let k = (META.arenaMax || 0) + 1; k <= lg1; k++) for (const f of RAID.leagues[k].balls) if (!META.unlocked.includes(f)) META.unlocked.push(f); META.arenaMax = lg1; R.newArena = lg1; } // 처음 올라간 아레나 볼 6종 해금
+    saveMeta();
+  }
+  R.choice = choice; R.pin = pin; R.ball = ball; R.lgFrom = lg0; R.rpDelta = R.win ? RAID.win : -RAID.lose;
+  S.mode = 'result'; S.modal = null;
+  S.result = { win: R.win, raid: true, pinball: pin, time: S.t, kills: S.kills };
+}
+function renderMatch() { // 유저 매칭 연출 (약 1.5초)
+  const t = S.matchT, b = S.raid.bot;
+  ctx.drawImage(MENU_BG, 0, 0, W, H);
+  uiTxt('상대를 찾는 중', CX, 360, 40, UI.cream);
+  if (t < 1) { for (let i = 0; i < 8; i++) { const a = t * 8 + i * TAU / 8; ctx.globalAlpha = (i + 1) / 8; ctx.beginPath(); ctx.arc(CX + Math.cos(a) * 60, 600 + Math.sin(a) * 60, 12, 0, TAU); ctx.fillStyle = UI.gold; ctx.fill(); } ctx.globalAlpha = 1; const fake = RAID_BOTS[Math.floor(t * 20) % RAID_BOTS.length]; uiTxt(fake.name, CX, 760, 34, '#a49cb8'); }
+  else { uiHero(CX, 600, 90, rivalLook(b), ''); uiTxt(b.name, CX, 800, 50, UI.gold); pxBox(CX - 40, 830, 80, 40, '#a49cb8', { shade: null }); uiTxt('봇', CX, 860, 24); uiTxt('VS', CX, 960, 60, '#ff6a5a'); }
+}
+function renderVerdict() {
+  const R = S.raid, L = RAID.leagues[R.lg], b = R.bot;
+  uiPopup(70, 250, 580, 820); uiRibbon(CX, 280, 340, '침략 승리!', 'gold', 40);
+  uiHeroDead(CX, 470, 80, rivalLook(b));
+  uiLabel(b.name + ' (봇)을 쓰러뜨렸어요', CX, 610, 28, UI.ink, 'center', 900);
+  uiLabel('기본 보상: 핀볼 ' + R.base, CX, 655, 22, '#6a5a8a', 'center', 700);
+  uiPanel(100, 690, 250, 240); uiHero(225, 770, 40, rivalLook(b), 'joy'); uiLabel('살려주기', 225, 850, 28, UI.ink, 'center', 900); uiLabel('핀볼 +' + RAID.sparePinball[L.tier - 1], 225, 890, 24, '#e8731a', 'center', 900);
+  uiPanel(370, 690, 250, 240); uiBall(495, 770, 40, ['fire', 'spark', 'frost']); uiLabel('처치', 495, 850, 28, UI.ink, 'center', 900); uiLabel('랜덤 볼 1개', 495, 890, 24, '#3a96f0', 'center', 900);
+  uiTxt('1', 130, 730, 22, '#a49cb8'); uiTxt('2', 400, 730, 22, '#a49cb8');
+  hit({ x: 100, y: 690, w: 250, h: 240 }, () => raidSettle('spare'));
+  hit({ x: 370, y: 690, w: 250, h: 240 }, () => raidSettle('kill'));
+  uiLabel('하나를 골라요', CX, 990, 24, '#6a5a8a', 'center', 700);
+}
+function renderRaidResult() {
+  const R = S.raid;
+  uiPopup(90, 300, 540, 700);
+  uiRibbon(CX, 330, 340, R.win ? '침략 승리!' : '침략 실패', R.win ? 'gold' : 'gray', 40);
+  uiLeague(CX, 470, 46, leagueOf(META.rp));
+  uiLabel(RAID.leagues[leagueOf(META.rp)].name + ' · 침략 점수 ' + META.rp + ' (' + (R.rpDelta > 0 ? '+' : '') + R.rpDelta + ')', CX, 570, 26, UI.ink, 'center', 900);
+  if (R.newArena) uiLabel(RAID.leagues[R.newArena].an + ' 아레나! 새 볼 6종 해금', CX, 610, 22, '#d8302a', 'center', 900);
+  uiCoin(CX - 90, 690, 34); uiTxt('+' + R.pin, CX + 30, 710, 56, UI.gold);
+  if (R.ball) { uiBall(CX, 790, 34, [R.ball]); uiLabel(FN[R.ball].name + ' 볼 획득!', CX, 850, 24, '#3a96f0', 'center', 900); }
+  btn({ x: 190, y: 880, w: 340, h: 100 }, '로비로', 'orange', 36, () => goLobby());
+}
+function renderArena() {
+  ticketTick();
+  ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar();
+  const lg = leagueOf(META.rp), L = RAID.leagues[lg], nx = RAID.leagues[lg + 1], bot = dailyBot(L.tier);
+  uiLeague(CX, 200, 56, lg);
+  uiTxt(L.name + ' · ' + L.an, CX, 310, 34, L.c);
+  uiLabel('침략 점수 ' + META.rp + (nx ? ' / ' + nx.min : ''), CX, 350, 24, UI.cream, 'center', 900);
+  for (let i = 0; i < 5; i++) { ctx.globalAlpha = i < META.tickets ? 1 : .25; uiSword(250 + i * 55, 400, 20); ctx.globalAlpha = 1; }
+  if (META.tickets < 5 && META.ticketT) { const left = Math.max(0, 30 * 60000 - (Date.now() - META.ticketT)); uiLabel('충전까지 ' + Math.floor(left / 60000) + ':' + String(Math.floor(left / 1000) % 60).padStart(2, '0'), CX, 450, 20, UI.cream, 'center', 700); }
+  uiPanel(60, 480, 600, 300);
+  uiHero(180, 620, 70, rivalLook(bot)); uiLabel('오늘의 상대', 300, 530, 22, '#6a5a8a', 'left', 700);
+  uiLabel(bot.name, 300, 580, 38, UI.ink, 'left', 900); pxBox(300 + ctx.measureText(bot.name).width + 12, 550, 64, 38, '#a49cb8', { shade: null }); uiTxt('봇', 332 + ctx.measureText(bot.name).width, 578, 20);
+  for (let i = 0; i < 3; i++) uiStar(310 + i * 34, 620, 13, i < bot.tier ? UI.gold : '#d8d0e8');
+  bot.balls.forEach((b, i) => uiBall(320 + i * 70, 700, 26, b));
+  const open = raidOpen();
+  btn({ x: 160, y: 820, w: 400, h: 120 }, open ? '침략!' : '최고 레벨 2부터', 'red', 44, () => openPrep(0, true), !open || META.tickets <= 0);
+  RAID.leagues.forEach((l, i) => { const x = 40 + i * 132, y = 980; pxBox(x, y, 120, 180, i <= (META.arenaMax || 0) ? '#4b3a90' : '#2a1f4a', { shade: null }); uiLeague(x + 60, y + 50, 24, i); uiLabel(l.name, x + 60, y + 112, 20, '#fff', 'center', 900); if (i > (META.arenaMax || 0)) uiLock(x + 60, y + 150, 14); else l.balls.slice(0, 3).forEach((f, k) => uiBall(x + 24 + k * 36, y + 148, 14, [f])); });
+  drawTabBar(); drawFly(); drawHint();
+}
+
 
 // ===================== 흐름 =====================
 function startLevel(id, o = {}) { if (id === 1 && !META.tut.lv1) o.tutorial = true; if (o.tutorial) o.picks = []; reset(id, o); }
-// M5에서 채움
-function startRaid() {}
-function renderArena() { ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar(); uiTxt('침략 준비 중', CX, 600, 40); drawTabBar(); }
 
 // ===================== 15. 입력 =====================
 function toLogical(ev) { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left) * W / r.width, y: (ev.clientY - r.top) * H / r.height }; }
@@ -2557,6 +2697,7 @@ addEventListener('keydown', ev => {
   const m = S.modal, d = ev.key;
   if (ev.code === 'KeyT') IN.autoAim = !IN.autoAim;
   if (ev.code === 'KeyP') { if (S.mode === 'play') S.mode = 'pause'; else if (S.mode === 'pause') S.mode = 'play'; }
+  if (S.mode === 'verdict' && (d === '1' || d === '2')) raidSettle(d === '1' ? 'spare' : 'kill');
   if (S.mode === 'levelup' && m && '123'.includes(d) && m.cards[+d - 1]) pickCard(m.cards[+d - 1]);
   if (S.mode === 'itemcap' && m) { const i = 'qwe'.indexOf(d.toLowerCase()); if (i >= 0 && m.opts[i]) pickItem(m.opts[i]); }
   if (S.mode === 'freeup' && m && (/^[1-8]$/.test(d) || d === ' ' || d === 'Enter')) { if (m.done && m.t > m.spin + .4) closeModal(); else m.t = m.spin; }
@@ -2587,6 +2728,7 @@ requestAnimationFrame(frame);
 window.game = {
   get state() { return S; }, get S() { return S; }, get META() { return META; }, IN, RULE, LEVELS, ENEMY, BOSS, FN, EVO, ITEM,
   get MS() { return MS; }, loadMeta, saveMeta, freshMeta, setMeta(m) { META = m; }, goTab, goLobby, openPrep, pbFire, spinJackpot, payOut, rollSlot, addPxp, baseStats, autoGain,
+  startRaid, raidSettle, dailyBot, leagueOf, ticketTick,
   start: startLevel, reset, spawn, spawnBoss, launch, update, newBall, makeCards, pickCard, gainXp, recalc, openFreeUp, openItemCap, pickItem, closeModal, finishFreeUp,
   step(sec) { const n = Math.round(sec / STEP); for (let i = 0; i < n; i++) update(STEP); },
   seed(s) { RNG = mulberry32(s >>> 0); },
