@@ -154,7 +154,7 @@ const BOSS = {
 };
 const ITEMFALL = { v0: 30, acc: 60, max: 110, mag0: 200, magAcc: 2000, magMax: 1400 }; // 6.12 B
 const PMIN = TOP + .3 * (BOT - TOP); // 343: 좀비 대형이 풀리는 선
-const MOVE = { releaseGap: 40, engage: 110, sway: { f: 1.5, a: 20 }, wander: { f: .8, a: 30 }, sep: .92, sepY: 1.5, firstHit: .12, bombGap: 6, spawnY: TOP - 24, margin: 30, eliteY: TOP + 20, stopForm: [110, 60], stopSolo: 90 };
+const MOVE = { releaseGap: 40, engage: 110, sway: { f: 1.5, a: 20 }, wander: { f: .8, a: 30 }, sep: 1 /* 사용자 지시: 겹침 없음 (GDD 6.12 A3은 .92, 위아래 1.5배) */, sepY: 1.5, firstHit: .12, bombGap: 6, spawnY: TOP - 24, margin: 30, eliteY: TOP + 20, stopForm: [110, 60], stopSolo: 90 };
 // 아이템 (Lv1/2/3). col = 배지 색(임시), g = 문양(진화 아이템은 재료 문양)
 const ITEM = {
   magnet: { name: '자석', v: [60, 90, 120], col: '#e8483a', d: v => '획득 범위 +' + v },
@@ -202,8 +202,8 @@ const ITEM_BASE = Object.keys(ITEM).filter(k => !ITEM[k].evo);
 const FORMS = { gap: { x: 44, y: 62 }, row: { rows: 2, n: [5, 9] }, block: { rows: 4, n: [4, 4] }, wedge: { tri: [1, 2, 3, 4] }, wall: { rows: 3, n: [7, 9] }, horde: {} };
 // 10.6 확정값 (봇 KPI와 상관없이 표 그대로)
 const LEVELS = [
-  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: .80, bossMul: .35, dmgMul: .60, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
-  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 1.08, bossMul: .52, dmgMul: .75, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
+  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: .80, bossMul: .35, dmgMul: 1.20 /* 사용자 지시 ×2 (표 .60) */, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
+  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 1.08, bossMul: .52, dmgMul: 1.50 /* 사용자 지시 ×2 (표 .75) */, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
   { id: 3, name: '저격 옥상', mid: 'mbsnipe', hpMul: 1.21, bossMul: .33, dmgMul: .85, waves: 5, midAfter: 2, boss: 'digger', w: { knight: 3, boar: 1, archer: 1, shield: 1 }, forms: ['row', 'wedge', 'block'] },
   { id: 4, name: '바리케이드', mid: 'mbflame', hpMul: 1.58, bossMul: .33, dmgMul: .90, waves: 5, midAfter: 2, boss: 'paladin', w: { knight: 2, shield: 2, archer: 1, boar: 1 }, forms: ['wall', 'block'] },
   { id: 5, name: '폐병원', mid: 'mbtoxic', hpMul: 1.84, bossMul: 1.60, dmgMul: 1.25, waves: 6, midAfter: 3, boss: 'archmage', w: { knight: 3, archer: 1, shield: 1, priest: 1, boar: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
@@ -1768,17 +1768,25 @@ function updateEnemies(dt) {
       if (e.atkT >= e.atkEvery) { e.atkT = 0; hurtPlayer(e.dmg); }
     } else e.inRange = false;
   }
-  // 풀린 좀비끼리 밀어냄: 지름의 92%, 위아래는 1.5배 간격. 보스 몸 밖으로도
-  const free = S.enemies.filter(e => !e.dead && !e.form && !e.boss && !e.solo && e.cs !== 'dash' && !(e.rise > 0)).sort((a, b) => a.x - b.x);
-  for (let i = 0; i < free.length; i++) {
-    const a = free[i];
-    for (let j = i + 1; j < free.length; j++) {
-      const b = free[j], rr = (a.r + b.r) * MOVE.sep;
-      if (b.x - a.x > rr) break;
-      const dx = b.x - a.x, dy = (b.y - a.y) / MOVE.sepY, d2 = dx * dx + dy * dy;
-      if (d2 < rr * rr && d2 > 0) { const d = Math.sqrt(d2), push = (rr - d) / 2, nx = dx / d, ny = dy / d; a.x -= nx * push; a.y -= ny * push * MOVE.sepY; b.x += nx * push; b.y += ny * push * MOVE.sepY; }
+  // 좀비끼리 겹치지 않게 밀어냄 (사용자 지시: 대형 안·대형끼리 포함 모든 좀비, 지름 100%).
+  // 대형 멤버는 대형 안 자리(ox·oy)를 옮겨 다음 프레임에도 유지, 나머지는 위치를 옮김. 돌진 중·솟아오르는 중은 제외
+  const all = S.enemies.filter(e => !e.dead && !e.boss && e.cs !== 'dash' && !(e.rise > 0)).sort((a, b) => a.x - b.x);
+  const maxR = all.reduce((m, e) => Math.max(m, e.r), 0);
+  const nudge = (e, x, y) => { e.x += x; e.y += y; if (e.form && !ENEMY[e.type].bomber) { e.ox += x; e.oy += y; } };
+  for (let pass = 0; pass < 6; pass++) { all.sort((a, b) => a.x - b.x); for (let i = 0; i < all.length; i++) {
+    const a = all[i];
+    for (let j = i + 1; j < all.length; j++) {
+      const b = all[j], rr = (a.r + b.r) * MOVE.sep;
+      if (b.x - a.x > (a.r + maxR) * MOVE.sep) break;
+      if (Math.abs(b.y - a.y) >= rr) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy;
+      if (d2 >= rr * rr) continue;
+      const d = Math.sqrt(d2) || 1, nx = d2 ? dx / d : 1, ny = d2 ? dy / d : 0, push = (rr - (d2 ? d : 0)) / 2;
+      nudge(a, -nx * push, -ny * push); nudge(b, nx * push, ny * push);
     }
   }
+  for (const e of all) { const cx = Math.max(B.l + e.r, Math.min(B.r - e.r, e.x)) - e.x; if (cx) nudge(e, cx, 0); } }
+  const free = all.filter(e => !e.form);
   if (S.boss && !S.boss.dead) for (const a of free) { const e = S.boss, dx = a.x - e.x, dy = a.y - e.y, d = Math.hypot(dx, dy) || 1, rr = a.r + e.r; if (d < rr) { a.x = e.x + dx / d * rr; a.y = e.y + dy / d * rr; } }
   // 플레이어는 좀비 몸을 통과하지 못함 (겹치면 플레이어를 밀어냄)
   for (const e of S.enemies) {
