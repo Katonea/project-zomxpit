@@ -1111,7 +1111,7 @@ function evoPairs() {
   return out;
 }
 function fusePairs() {
-  const out = [], L = S.owned.filter(s => s.lv >= RULE.maxLv && !s.evo);
+  const out = [], L = S.owned.filter(s => s.lv >= RULE.maxLv); // 진화 볼도 조건이 맞으면 융합
   for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
     const a = L[i], b = L[j];
     if (a.fns.length + b.fns.length <= RULE.maxFns && !a.fns.some(f => b.fns.includes(f))) out.push({ k: 'fuse', a, b });
@@ -1139,7 +1139,7 @@ function pickCard(c) {
   if (c.k === 'up') { c.ball.lv++; sfx('up'); }
   else if (c.k === 'new') { S.owned.push(newBall([c.fn])); sfx('up'); }
   else { // 융합·진화: 두 볼을 한 칸으로
-    const nb = c.k === 'evo' ? newBall([EVO[c.id].a, EVO[c.id].b], 1, c.id) : newBall(c.a.fns.concat(c.b.fns), 1);
+    const nb = c.k === 'evo' ? newBall([EVO[c.id].a, EVO[c.id].b], 1, c.id) : newBall(c.a.fns.concat(c.b.fns), 1, c.a.evo || c.b.evo || null); // 진화 효과 유지
     const i = S.owned.indexOf(c.a); S.owned.splice(i, 1, nb); S.owned.splice(S.owned.indexOf(c.b), 1);
     S.modal = { k: 'fusion', t: 0, a: c.a.fns, b: c.b.fns, ball: nb };
     S.mode = 'fusion'; S.hs = .12; shake(16, .3); sfx('fuse');
@@ -1164,18 +1164,26 @@ function openNext() {
 function closeModal() { if ((S.mode === 'freeup' || S.mode === 'itemcap') && !META.tut.cap) { META.tut.cap = true; saveMeta(); }
   S.modal = null; S.mode = 'play'; openNext(); }
 // 볼 캡슐 = 무료 강화 룰렛: 빛이 볼 칸을 훑다 당첨 볼에 멈춘 뒤 한꺼번에 Lv+n
+const BALLCAP = { sweep: .4, lockEach: .12, pop: .15, charge: .6 };
 function openFreeUp(n) {
-  const can = S.owned.filter(s => s.lv < RULE.maxLv);
-  const m = { k: 'freeup', n, t: 0, list: S.owned.slice(), win: null, from: 0, xp: 0 };
-  if (!can.length) { m.xp = xpNeed(S.lv) * .5 * n; } // 올릴 볼이 없으면 회당 필요 경험치 50%
-  else { m.win = can[randi(0, can.length - 1)]; m.from = m.win.lv; m.to = Math.min(RULE.maxLv, m.win.lv + n); }
-  m.single = S.owned.length === 1;
-  m.spin = m.win ? 1.6 + .1 * S.owned.indexOf(m.win) : .6;
-  S.modal = m; S.mode = 'freeup'; sfx('gift');
+  const lv = new Map(S.owned.map(s => [s, s.lv])), wins = new Map(); let xp = 0;
+  const upgradable = S.owned.filter(s => s.lv < RULE.maxLv).length;
+  for (let k = 0; k < n; k++) {
+    const can = S.owned.filter(s => lv.get(s) < RULE.maxLv);
+    if (!can.length) { xp += xpNeed(S.lv) * .5; continue; } // 갈 곳이 없는 횟수는 회당 필요 경험치 50%
+    const s = can[randi(0, can.length - 1)]; lv.set(s, lv.get(s) + 1); wins.set(s, (wins.get(s) || 0) + 1);
+  }
+  const W = [...wins].map(([ball, c]) => ({ ball, from: ball.lv, to: ball.lv + c, c }));
+  const style = upgradable >= 2 ? 'sweep' : upgradable === 1 ? 'charge' : 'xp';
+  const spin = style === 'sweep' ? BALLCAP.sweep + BALLCAP.lockEach * W.length + BALLCAP.pop : style === 'charge' ? BALLCAP.charge * n : .3;
+  S.modal = { k: 'ballcap', n, t: 0, list: S.owned.slice(), wins: W, xp, style, spin };
+  S.mode = 'freeup'; shake(8, .2); sfx('gift');
 }
 function finishFreeUp() {
-  const m = S.modal; if (!m || m.done) return; m.done = true;
-  if (m.win) { m.win.lv = m.to; recalc(); sfx('up'); } else if (m.xp) gainXp(m.xp);
+  const m = S.modal; if (!m || m.done) return; m.done = true; m.doneT = m.t;
+  for (const w of m.wins) w.ball.lv = w.to;
+  if (m.wins.length) { recalc(); sfx('up'); shake(6, .15); }
+  if (m.xp) gainXp(m.xp);
 }
 // 장비 캡슐: 아이템 3개 중 1개 (짝이 모두 Lv3이면 진화가 선택지에 먼저)
 function openItemCap() {
@@ -1183,7 +1191,7 @@ function openItemCap() {
   for (const id in ITEM) { const it = ITEM[id]; if (it.evo && !hasItem(id) && it.evo.every(x => itemLv(x) >= 3)) opts.push({ id, evo: true }); }
   const pool = ITEM_BASE.filter(id => (hasItem(id) ? itemLv(id) < 3 : S.items.length < RULE.itemSlots && slotCount() < RULE.slots) && !S.items.some(i => ITEM[i.id].evo && ITEM[i.id].evo.includes(id)));
   while (opts.length < 3 && pool.length) opts.push({ id: pool.splice(randi(0, pool.length - 1), 1)[0] });
-  if (!opts.length) { heal(S.p.maxHp * .3); return openNext(); }
+  if (!opts.length) return openFreeUp(wpick(RULE.upCount.map((w, i) => [i + 1, w]))); // 고를 아이템이 없으면 볼 캡슐로
   S.modal = { k: 'itemcap', opts, t: 0 }; S.mode = 'itemcap'; sfx('gift');
 }
 function pickItem(o) {
@@ -1386,21 +1394,26 @@ function onHit(b, e, nx, ny, vyIn) {
   for (let i = 0; i < (crit ? 6 : 3); i++) addFx({ k: 'dot', x: b.x + rand(-8, 8), y: b.y + rand(-8, 8), t: 0, T: .18, c: col });
   sfx('hit');
   hurt(e, dmg, { crit, ball: b });
-  if (b.baby) return;
-  // 기능 효과
-  if (v.fire) applyStatus(e, 'burn', dmg * v.fire.pct);
-  if (v.frost) applyStatus(e, 'slow', v.frost);
-  if (v.poison) { applyStatus(e, 'poison', { max: v.poison.max, hit: dmg }); if (pr.evo === 'plague') nearest(e.x, e.y, 3, e).forEach(o => applyStatus(o, 'poison', { max: v.poison.max, hit: dmg })); }
-  if (v.curse) applyStatus(e, 'curse', v.curse.pct);
+  // 기능 효과 (분열 작은 공도 분열을 뺀 원래 기능을 모두 냄)
+  const statusOn = (o, d) => { // 번개·폭발에 맞은 적에게도 그 피해 기준으로 상태이상
+    if (v.fire) applyStatus(o, 'burn', d * v.fire.pct);
+    if (v.frost) applyStatus(o, 'slow', v.frost);
+    if (v.poison) applyStatus(o, 'poison', { max: v.poison.max, hit: d });
+    if (v.curse) applyStatus(o, 'curse', v.curse.pct);
+    if (v.bleed) applyStatus(o, 'bleed', d * v.bleed.pct);
+  };
+  statusOn(e, dmg);
+  if (v.poison && pr.evo === 'plague') nearest(e.x, e.y, 3, e).forEach(o => applyStatus(o, 'poison', { max: v.poison.max, hit: dmg }));
   if (pr.evo === 'bloodmoon') for (const o of S.enemies) if (!o.dead && Math.hypot(o.x - e.x, o.y - e.y) < 200) applyStatus(o, 'curse', v.curse.pct);
-  if (v.bleed) applyStatus(e, 'bleed', dmg * v.bleed.pct);
   if (v.stun && rand() < v.stun.pct) applyStatus(e, 'stun', v.stun.t);
   if (v.vamp) heal(dmg * v.vamp.pct * S.mods.vampMul * (pr.evo === 'bloodmoon' ? 2 : 1));
-  if (v.wind && !e.dead) { const px_ = v.wind.px * (e.boss ? .1 : 1); if (e.form) e.form.members = e.form.members.filter(m => m !== e), e.form = null; e.y -= px_; }
-  if (v.gravity) for (const o of S.enemies) { if (o.dead || o.boss) continue; const dx = b.x - o.x, dy = b.y - o.y, l = Math.hypot(dx, dy); if (l < v.gravity.r && l > 1) { if (o.form) { o.form.members = o.form.members.filter(m => m !== o); o.form = null; } const s = Math.min(l, v.gravity.px); o.x += dx / l * s; o.y += dy / l * s; } }
-  if (v.spark) { const ch = nearest(e.x, e.y, Math.round(v.spark.n), e, 200); let px0 = e.x, py0 = e.y; for (const o of ch) { addFx({ k: 'zap', x: px0, y: py0, x2: o.x, y2: o.y, t: 0, T: .2, c: FN.spark.color }); hurt(o, dmg * v.spark.pct); if (pr.evo === 'blizzard') freeze(o, o.boss ? 1 : 1); px0 = o.x; py0 = o.y; } }
-  if (v.bomb) { const r = v.bomb.r * (pr.evo === 'inferno' ? 1.6 : 1); area(b.x, b.y, r, dmg * v.bomb.pct, FN.bomb.color, pr.evo === 'inferno' ? { each: o => applyStatus(o, 'burn', dmg * .2) } : {}); }
-  if (v.split) { const n = Math.round(v.split.n) + (pr.evo === 'mirror' ? 2 : 0); for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + rand(-1.1, 1.1); S.balls.push({ x: b.x, y: b.y, vx: Math.cos(a) * b.spd, vy: Math.sin(a) * b.spd, spd: b.spd, base: b.spd, r: 7, slot: null, baby: true, life: 3, pr: { fns: pr.fns, v: {}, dmg: pr.dmg }, fns: pr.fns, dmg: pr.dmg, hit: new Map([[e.id, S.t]]), rot: 0, walls: 0, hits: 0, pierce: 0, ric: 0 }); } }
+  if (v.wind && !e.dead) { releaseFromForm(e); e.y -= v.wind.px * (e.boss ? .1 : 1); }
+  if (v.gravity) for (const o of S.enemies) { if (o.dead || o.boss) continue; const dx = b.x - o.x, dy = b.y - o.y, l = Math.hypot(dx, dy); if (l < v.gravity.r && l > 1) { releaseFromForm(o); const s = Math.min(l, v.gravity.px); o.x += dx / l * s; o.y += dy / l * s; } }
+  // 번개: 맞은 적 기준 반경 200 안 가까운 n명에게 각각 (적에서 적으로 건너뛰지 않음)
+  if (v.spark) for (const o of nearest(e.x, e.y, Math.round(v.spark.n), e, 200)) { const d2 = dmg * v.spark.pct; addFx({ k: 'zap', x: e.x, y: e.y, x2: o.x, y2: o.y, t: 0, T: .2, c: FN.spark.color }); hurt(o, d2); statusOn(o, d2); if (pr.evo === 'blizzard') freeze(o, 1); }
+  if (v.bomb) { const r = v.bomb.r * (pr.evo === 'inferno' ? 1.6 : 1), d2 = dmg * v.bomb.pct; area(b.x, b.y, r, d2, FN.bomb.color, { each: o => { statusOn(o, d2); if (pr.evo === 'inferno') applyStatus(o, 'burn', d2 * .2); } }); }
+  // 분열: 작은 공 n개 (반지름 6, −90°±1.2rad, 기본 공 속도, 분열을 뺀 기능 모두, 피해 40%)
+  if (v.split && !b.baby) { const n = Math.round(v.split.n) + (pr.evo === 'mirror' ? 2 : 0), bv = { ...v }; delete bv.split; const bpr = { ...pr, v: bv, fns: pr.fns.filter(f => f !== 'split') }; for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + rand(-1.2, 1.2), sp = RULE.ballSpeed; S.balls.push({ x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, spd: sp, base: sp, r: 6, slot: null, baby: true, life: 3, pr: bpr, fns: pr.fns, dmg: pr.dmg, hit: new Map([[e.id, S.t]]), rot: 0, spin: 0, walls: 0, hits: 0, pierce: 0, ric: 0 }); } }
   if (v.echo) { const n = pr.evo === 'mirror' ? 2 : 1; for (let i = 1; i <= n; i++) later(.4 * i, () => area(b.x, b.y, 34, dmg * v.echo.pct, FN.echo.color)); }
   if (v.meteor && (pr.evo === 'comet' || rand() < v.meteor.p)) { const x = e.x, y = e.y, r = v.meteor.r * (pr.evo === 'comet' ? 1.5 : 1); addFx({ k: 'target', x, y, r, t: 0, T: .35, c: FN.meteor.color }); later(.35, () => area(x, y, r, dmg * 2, FN.meteor.color)); }
   if (v.prism) { const L = S.enemies.filter(o => !o.dead && o.y > TOP); for (let i = 0; i < Math.round(v.prism.n) && L.length; i++) { const o = L.splice(randi(0, L.length - 1), 1)[0]; addFx({ k: 'zap', x: b.x, y: b.y, x2: o.x, y2: o.y, t: 0, T: .25, c: FN.prism.color }); hurt(o, dmg * v.prism.pct); } }
@@ -1593,18 +1606,13 @@ function aimAngle(vis) {
   return e ? Math.atan2(e.y - p.y, e.x - p.x) : -Math.PI / 2;
 }
 function updateFire(dt) {
-  const vis = visibleEnemies();
-  S.p.aim = aimAngle(vis);
+  const all = S.enemies.filter(e => !e.dead && !(e.rise > 0));
+  S.p.aim = aimAngle(all);
   S.fireT -= dt;
-  if (!vis.length || S.fireT > 0) return;
-  const n = S.slots.length;
-  for (let i = 0; i < n; i++) {
-    const s = S.slots[(S.nextSlot + i) % n];
-    if (!s.out) {
-      const j = s.kind === 'normal' && (itemV('rattle') || hasItem('cornucopia')) ? .175 : .025, spread = rand(-j, j); // 조준 흔들림 (딸랑이 ±0.175)
-      launch(s, S.p.aim + spread); S.nextSlot = (S.nextSlot + i + 1) % n; S.fireT = .1; return;
-    }
-  }
+  if (!all.length || S.fireT > 0) return;
+  const s = S.slots.find(s => !s.out); if (!s) return;
+  const j = s.kind === 'normal' && (itemV('rattle') || hasItem('cornucopia')) ? .175 : .025; // 조준 흔들림 (딸랑이 ±0.175)
+  launch(s, S.p.aim + rand(-j, j)); S.fireT = .1;
 }
 // x 정렬된 목록에서 x 이상 첫 인덱스
 function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].x < x) lo = m + 1; else hi = m; } return lo; }
@@ -2055,33 +2063,47 @@ function renderFusion() {
   }
   if (t < 2.4) hit({ x: 0, y: 0, w: W, h: H }, () => { m.t = 2.4; }); // 누르면 빨리 넘어감
 }
+// 볼 캡슐 (부록 B.2.4): A) 올릴 볼 2개 이상 = 일괄 연출, C) 1개 = 충전 → LEVEL UP!
 function renderFreeUp() {
-  const m = S.modal, t = m.t, n = m.list.length, cx = CX, cy = 640, R = 190;
-  dim();
-  uiRibbon(CX, 250, 320, '볼 캡슐!', 'pink', 40);
-  uiTxt('×' + m.n, CX, 345, 34, UI.gold);
-  if (m.win && !m.single) { // 원형 룰렛: 내 볼 칸, 테두리 전구 24개, 위 빨간 화살표
-    ctx.beginPath(); ctx.arc(cx, cy, R + 30, 0, TAU); ctx.fillStyle = '#4b3a90'; ctx.fill(); uiLine(UI.ink, 8);
-    for (let k = 0; k < 24; k++) { const a = k * TAU / 24; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * (R + 30), cy + Math.sin(a) * (R + 30), 7, 0, TAU); ctx.fillStyle = (k + Math.floor(t * 8)) % 2 ? '#fff6a0' : '#ffd23a'; ctx.fill(); uiLine(UI.ink, 2.5); }
-    const wi = m.list.indexOf(m.win), steps = n * 3 + wi, k = Math.min(1, t / m.spin), cur = Math.floor(steps * (1 - Math.pow(1 - k, 3)) + .0001) % n;
-    m.list.forEach((s, i) => { const a = -Math.PI / 2 + i * TAU / n, x = cx + Math.cos(a) * R * .62, y = cy + Math.sin(a) * R * .62, on = i === (k >= 1 ? wi : cur);
-      if (on) { ctx.beginPath(); ctx.arc(x, y, 50, 0, TAU); ctx.fillStyle = k >= 1 && Math.floor(t * 8) % 2 ? '#fff' : '#ffe14a'; ctx.fill(); }
-      uiBall(x, y, 34, s.fns); });
-    ctx.beginPath(); ctx.moveTo(cx - 20, cy - R - 60); ctx.lineTo(cx + 20, cy - R - 60); ctx.lineTo(cx, cy - R - 20); ctx.closePath(); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 4);
-  } else if (m.win) { // 볼 하나: 빛 알갱이가 빨려 들며 링이 차오른 뒤 폭발
-    const k = Math.min(1, t / m.spin);
-    for (let i = 0; i < 14; i++) { const a = i * 2.4 + t * 3, d = 260 * (1 - ((t * 1.3 + i / 14) % 1)); px(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 6, FN[m.win.fns[0]].color); }
-    ctx.beginPath(); ctx.arc(cx, cy, 110, -Math.PI / 2, -Math.PI / 2 + TAU * k); ctx.strokeStyle = UI.gold; ctx.lineWidth = 14; ctx.stroke();
-    uiBall(cx, cy, 70, m.win.fns, t * 4);
-    if (k >= 1) boomFx(cx, cy, Math.round(160 * Math.min(1, (t - m.spin) * 4)), Math.max(0, 1 - (t - m.spin) * 2), FN[m.win.fns[0]].color);
-  } else { uiGem(cx, cy, 70); }
-  if (m.done) {
-    uiPanel(110, 860, 500, 160);
-    if (m.win) { uiTxt('LEVEL UP!', CX, 920, 40, UI.gold); uiLabel(ballName(m.win) + '  Lv' + m.from + ' → Lv' + m.to, CX, 975, 26, UI.ink, 'center', 900); }
-    else uiTxt('경험치 +' + Math.round(m.xp), CX, 960, 36, '#9fe0ff');
-    if (m.t > m.spin + .4) { txtC('화면을 눌러 닫기', CX, 1080, 24, '#fff'); hit({ x: 0, y: 0, w: W, h: H }, () => closeModal()); }
-  } else hit({ x: 0, y: 0, w: W, h: H }, () => { m.t = m.spin; });
+  const m = S.modal, t = m.t;
+  ctx.fillStyle = 'rgba(20,8,50,.9)'; ctx.fillRect(0, 0, W, H);
+  if (m.done) rays(CX, 560, 16, .1);
+  if (m.style !== 'charge') uiRibbon(CX, 200, 360, '볼 캡슐!', 'pink', 46);
+  if (m.style === 'charge') return renderBallCapSingle(m, t);
+  uiTxt('강화 ' + m.n + '회', CX, 290 + 24 * .36, 24, '#ffd8ec');
+  const L = m.list, rows = Math.ceil(L.length / 4), wins = m.wins.map(w => w.ball);
+  const sweepOn = t < BALLCAP.sweep ? Math.floor(t / .05) % L.length : -1;
+  L.forEach((s, i) => {
+    const row = Math.floor(i / 4), inRow = Math.min(4, L.length - row * 4), x = CX + (i % 4 - (inRow - 1) / 2) * 150, y = 520 + 190 * row;
+    const wi = wins.indexOf(s), locked = wi >= 0 && t >= BALLCAP.sweep + BALLCAP.lockEach * wi;
+    if (i === sweepOn) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 62, y - 62, 124, 124); ctx.fillStyle = '#1a0c38'; ctx.fillRect(x - 54, y - 54, 108, 108); }
+    if (locked) { ctx.fillStyle = UI.gold; ctx.fillRect(x - 66, y - 66, 132, 132); ctx.fillStyle = '#1a0c38'; ctx.fillRect(x - 56, y - 56, 112, 112); }
+    uiBall(x, y, 44, s.fns, locked ? t * 4 : 0);
+    const w = m.wins[wi], to = locked ? w.to : s.lv;
+    for (let p = 0; p < RULE.maxLv; p++) { ctx.fillStyle = p < s.lv ? UI.gold : p < to ? '#ffffff' : '#3a2a5a'; ctx.fillRect(x - 40 + 20 * p - 6, y + 84 - 6, 12, 12); }
+    const popT = t - (BALLCAP.sweep + BALLCAP.lockEach * wi + BALLCAP.pop);
+    if (locked && popT >= 0) { const yy = y - 84 - Math.min(30, popT * 120); pxBox(x - 38, yy - 22, 76, 44, '#ff6ab0', { shade: null }); uiTxt('+' + w.c, x, yy + 28 * .36, 28); }
+  });
+  if (!m.done) { uiTxt('두구두구…', CX, 1110 + 26 * .36, 26); hit({ x: 0, y: 0, w: W, h: H }, () => { m.t = m.spin; finishFreeUp(); }); return; }
+  const y = 520 + rows * 190 - 40, h = 70 + 44 * m.wins.length + (m.xp ? 34 : 0);
+  uiPanel(80, y, 560, h); uiLabel('강화 결과', CX, y + 40, 24, UI.ink, 'center', 900);
+  m.wins.forEach((w, k) => { const yy = y + 76 + 44 * k; uiBall(140, yy - 8, 18, w.ball.fns); uiLabel(ballName(w.ball) + '  Lv' + w.from + ' → Lv' + w.to, 172, yy, 22, '#e8731a', 'left', 900); });
+  if (m.xp) uiLabel('경험치 +' + Math.round(m.xp), 172, y + 76 + 44 * m.wins.length, 22, '#3a96f0', 'left', 900);
+  if (m.t > m.doneT + .4) { uiTxt('화면을 눌러 닫기', CX, 1130 + 24 * .36, 24); hit({ x: 0, y: 0, w: W, h: H }, () => closeModal()); }
 }
+function renderBallCapSingle(m, t) {
+  const w = m.wins[0], cx = CX, cy = 640, per = BALLCAP.charge, k = Math.min(m.n, Math.floor(t / per)), f = (t % per) / per;
+  ctx.beginPath(); ctx.arc(cx, cy, 150, 0, TAU); ctx.strokeStyle = '#3a2a5a'; ctx.lineWidth = 16; ctx.stroke();
+  if (!m.done) { ctx.beginPath(); ctx.arc(cx, cy, 150, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.strokeStyle = '#ffd23a'; ctx.stroke(); for (let i = 0; i < 12; i++) { const a = i * 2.4 + t * 3, d = 260 * (1 - ((t * 1.6 + i / 12) % 1)); px(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 6, FN[w.ball.fns[0]].color); } }
+  const burst = m.done || (f < .2 && k > 0);
+  uiBall(cx, cy, burst ? 110 : 100 - 28 * f, w.ball.fns, t * 4);
+  if (burst) { const bt = m.done ? t - m.doneT : f * per; boomFx(cx, cy, Math.round(180 * Math.min(1, bt * 5)), Math.max(0, 1 - bt * 2), FN[w.ball.fns[0]].color); ctx.beginPath(); ctx.arc(cx, cy, 150 + bt * 400, 0, TAU); ctx.strokeStyle = 'rgba(255,255,255,' + Math.max(0, .8 - bt * 2) + ')'; ctx.lineWidth = 8; ctx.stroke();
+    const yy = Math.min(350, 200 + bt * 600); uiRibbon(CX, yy, 380, 'LEVEL UP!', 'pink', 48); }
+  uiLabel(ballName(w.ball) + '  Lv' + w.from + ' → Lv' + Math.min(w.to, w.from + k), CX, 900, 30, '#fff', 'center', 900);
+  if (!m.done) { uiTxt('충전 중…', CX, 1110 + 26 * .36, 26); hit({ x: 0, y: 0, w: W, h: H }, () => { m.t = m.spin; finishFreeUp(); }); }
+  else if (t > m.doneT + .4) { uiTxt('화면을 눌러 닫기', CX, 1130 + 24 * .36, 24); hit({ x: 0, y: 0, w: W, h: H }, () => closeModal()); }
+}
+function rays(cx, cy, n, a, c = '#ffd23a') { ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = c; for (let k = 0; k < n; k++) { const an = S.t * .4 + k * TAU / n; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(an) * 1200, cy + Math.sin(an) * 1200); ctx.lineTo(cx + Math.cos(an + TAU / n / 2) * 1200, cy + Math.sin(an + TAU / n / 2) * 1200); ctx.closePath(); ctx.fill(); } ctx.restore(); }
 function renderItemCap() {
   const m = S.modal; dim();
   uiRibbon(CX, 250, 340, '장비 캡슐!', 'gold', 40);
