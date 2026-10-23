@@ -1119,6 +1119,7 @@ function cardInfo(c) {
   return { title: '새 볼', name: FN[c.fn].name + ' 볼', fns: [c.fn], d: FN[c.fn].d(fv(c.fn, 1)), tag: '새 볼', theme: 'blue' };
 }
 function pickCard(c) {
+  if (!META.tut.card) { META.tut.card = true; saveMeta(); }
   if (c.k === 'up') { c.ball.lv++; sfx('up'); }
   else if (c.k === 'new') { S.owned.push(newBall([c.fn])); sfx('up'); }
   else { // 융합·진화: 두 볼을 한 칸으로
@@ -1144,7 +1145,8 @@ function openNext() {
     if (c.kind === 'ball') openFreeUp(c.n); else openItemCap();
   }
 }
-function closeModal() { S.modal = null; S.mode = 'play'; openNext(); }
+function closeModal() { if ((S.mode === 'freeup' || S.mode === 'itemcap') && !META.tut.cap) { META.tut.cap = true; saveMeta(); }
+  S.modal = null; S.mode = 'play'; openNext(); }
 // 볼 캡슐 = 무료 강화 룰렛: 빛이 볼 칸을 훑다 당첨 볼에 멈춘 뒤 한꺼번에 Lv+n
 function openFreeUp(n) {
   const can = S.owned.filter(s => s.lv < RULE.maxLv);
@@ -1462,26 +1464,15 @@ function bossAct(e, dt) {
   const gap = dist - e.r - p.r;
   if (gap <= RULE.meleeR) { e.atkT += dt; if (e.atkT >= e.atkEvery) { e.atkT = 0; hurtPlayer(e.dmg); } } else e.atkT = Math.min(e.atkT, e.atkEvery * .5);
 }
-function bossDown(e) {
-  S.boss = null;
-  addFx({ k: 'boom', x: e.x, y: e.y, r: e.r * 1.6, t: 0, T: .6, c: '#ffe14a' });
-  shake(e.boss === 'final' ? 26 : 16, .5); sfx('kill'); buzz([80, 40, 120]);
-  if (e.boss === 'mid') {
-    S.gems.push({ x: e.x, y: e.y, vy: -80, v: e.xp });
-    S.fieldFrom = S.fieldW; S.fieldTo = FIELD.openW; S.fieldT = FIELD.openTime;
-    dropCap(e.x - 30, e.y, 'ball'); dropCap(e.x + 30, e.y, 'equip');
-    S.phase = 'waves'; S.wave++; S.waveT = 0; S.spawnT = 1;
-  } else {
-    S.winT = 1.6; // 처치 연출 뒤 승리
-    for (const o of S.enemies) if (!o.dead) o.dead = true;
-  }
-}
+
 
 // ===================== 11. update (고정 스텝 120Hz) =====================
 function update(dt) {
   if (MENU_MODES.includes(S.mode)) return menuUpdate(dt);
   if (S.mode === 'title') return;
   if (S.mode !== 'play') { if (S.modal) { S.modal.t += dt; if (S.mode === 'freeup' && S.modal.t >= S.modal.spin) finishFreeUp(); } return; }
+  if (S.ko) S.ko.t += dt;
+  if (S.kotext) S.kotext.t += dt;
   if (S.hs > 0) { S.hs -= dt; return; }
   S.t += dt; S.eliteT += dt;
   if (S.shake > 0) S.shake -= dt;
@@ -1770,7 +1761,7 @@ function endBattle(win) {
 function onBattleEnd(R) { // 승패 모두 핀볼 지급, 첫 클리어면 다음 레벨 해금
   META.pinball += R.pinball;
   if (R.first) META.best = S.L.id;
-  META.tut.lv1 = true;
+  META.tut.lv1 = true; META.tut.move = true;
   saveMeta();
 }
 function menuUpdate(dt) {
@@ -1785,7 +1776,7 @@ function menuUpdate(dt) {
 function addFx(f) { if (S.fx.length < 200) S.fx.push(f); }
 function addNum(x, y, v, crit, color) { if (S.nums.length < 120) S.nums.push({ x, y, v, crit, color, t: 0 }); }
 function updateFx(dt) {
-  for (const f of S.fx) { f.t += dt; if (f.vx !== undefined) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 600 * dt; } }
+  for (const f of S.fx) { f.t += dt; if (f.suck && f.t > f.suck) { const dx = CX - f.x, dy = -40 - f.y, l = Math.hypot(dx, dy) || 1; f.vx = dx / l * 1400; f.vy = dy / l * 1400; f.x += f.vx * dt; f.y += f.vy * dt; } else if (f.vx !== undefined) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 600 * dt; } }
   S.fx = S.fx.filter(f => f.t < f.T);
   for (const n of S.nums) { n.t += dt; n.y -= 40 * dt; }
   S.nums = S.nums.filter(n => n.t < .7);
@@ -1875,7 +1866,10 @@ function drawFx(f) {
   else if (f.k === 'boom') { ctx.globalAlpha = 1; boomFx(f.x, f.y, Math.round(f.r * (.6 + .4 * (1 - a))), a, f.c); }
   else if (f.k === 'zap') { ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo((f.x + f.x2) / 2 + rand(-10, 10), (f.y + f.y2) / 2 + rand(-10, 10)); ctx.lineTo(f.x2, f.y2); ctx.strokeStyle = f.c; ctx.lineWidth = 4; ctx.stroke(); }
   else if (f.k === 'target') { ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, TAU); ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.stroke(); }
-  else if (f.k === 'flash') { ctx.fillStyle = f.c; ctx.globalAlpha = a * .4; ctx.fillRect(0, 0, W, H); }
+  else if (f.k === 'flash') { ctx.fillStyle = f.c; ctx.globalAlpha = a * .5; ctx.fillRect(0, 0, W, H); }
+  else if (f.k === 'px') { ctx.globalAlpha = 1; boomPx(f.x, f.y, Math.round(f.r * (.5 + .5 * (1 - a))), a); }
+  else if (f.k === 'shock') { ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r + 300 * (1 - a), (f.r + 300 * (1 - a)) * .55, 0, 0, TAU); ctx.strokeStyle = '#fff6c0'; ctx.lineWidth = 10 * a + 2; ctx.stroke(); }
+  else if (f.k === 'coin') { ctx.globalAlpha = 1; uiCoin(f.x, f.y, 12); }
   ctx.globalAlpha = 1;
 }
 function drawHUD() {
@@ -1887,8 +1881,8 @@ function drawHUD() {
   uiTxt('Lv' + S.lv, 38, 58, 20, UI.gold);
   uiTxt(S.phase === 'mid' || S.phase === 'boss' ? '보스전' : '웨이브 ' + S.wave + '/' + S.L.waves, 450, 32, 22);
   const t = Math.floor(S.t); uiTxt(Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'), 450, 60, 18, UI.cream);
-  pxBox(628, 6, 80, 58, '#4b3a90'); ctx.fillStyle = '#fff'; ctx.fillRect(656, 22, 8, 26); ctx.fillRect(672, 22, 8, 26);
-  hit({ x: 616, y: 0, w: 104, h: 92 }, () => { if (S.mode === 'play') S.mode = 'pause'; });
+  pxBox(628, 6, 80, 58, '#4b3a90'); ctx.save(); ctx.translate(668, 35); for (let k = 0; k < 8; k++) { ctx.rotate(Math.PI / 4); ctx.fillStyle = '#e8e2f5'; ctx.fillRect(-4, -18, 8, 8); } ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fillStyle = '#4b3a90'; ctx.fill(); ctx.restore();
+  hit({ x: 616, y: 0, w: 104, h: 92 }, () => { if (S.mode === 'play') openSettings(); });
   const e = S.boss;
   if (e && !e.entering) { const B = bounds(); uiBar(B.l + 10, TOP + 10, B.r - B.l - 20, 22, e.hp / e.maxHp, ['#ff8a5a', '#d8302a']); uiTxt(BOSS[e.bid].name, CX, TOP + 52, 18); }
   if (S.banner) { // 보스 등장 경고 배너
@@ -1926,6 +1920,7 @@ function renderBattle() {
   for (const b of S.balls) drawBall(b.x, b.y, b.r, b.fns, b.rot);
   for (const s of S.shots) drawShot(s);
   for (const h of S.haz) if (h.k === 'wave') drawHaz(h);
+  drawKO();
   for (const f of S.fx) drawFx(f);
   for (const n of S.nums) { ctx.globalAlpha = Math.max(0, Math.min(1, 2 - n.t * 2.5)); uiTxt(String(n.v), n.x, n.y, n.crit ? 30 : 20, n.color || (n.crit ? UI.gold : '#fff')); ctx.globalAlpha = 1; }
   ctx.restore();
@@ -1933,6 +1928,7 @@ function renderBattle() {
   ctx.restore();
   drawHUD();
   drawSticks();
+  if (S.kotext) { const k = Math.min(1, S.kotext.t * 4); uiTxt('처치!', CX, 520, 90 * (1.4 - .4 * k), UI.gold); }
 }
 
 // ---------- 오버레이: 레벨업 카드 · 융합 · 볼 캡슐 · 장비 캡슐 ----------
@@ -2040,12 +2036,15 @@ function render() {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = '#140f0b'; ctx.fillRect(0, 0, W, H);
   if (S.mode === 'title') renderTitle();
-  else if (MENU_MODES.includes(S.mode)) ({ lobby: renderLobby, prep: renderPrep, balls: renderBalls, chars: renderChars, arena: renderArena, select: renderPinball, machine: renderPinball })[S.mode]();
+  else if (MENU_MODES.includes(S.mode) || (S.mode === 'settings' && MENU_MODES.includes(S.setPrev))) ({ lobby: renderLobby, prep: renderPrep, balls: renderBalls, chars: renderChars, arena: renderArena, select: renderPinball, machine: renderPinball })[S.mode === 'settings' ? S.setPrev : S.mode]();
   else {
     renderBattle();
     const o = { pause: renderPause, result: renderResult, levelup: renderLevelUp, fusion: renderFusion, freeup: renderFreeUp, itemcap: renderItemCap }[S.mode];
     if (o) o();
+    if (S.mode === 'settings') renderSettings();
+    drawBattleHint();
   }
+  if (S.mode === 'settings' && MENU_MODES.includes(S.setPrev)) renderSettings();
 }
 
 // ===================== 13. UI: 로비 · 출전 선택 · 볼 탭 · 캐릭터 탭 · 핀볼 머신 =====================
@@ -2156,7 +2155,7 @@ function renderPrep() {
     hit({ x, y, w: 140, h: 156 }, () => { sfx('click'); if (on) S.picks = S.picks.filter(p => p !== f); else { if (S.picks.length >= 2) S.picks.shift(); S.picks.push(f); } });
   });
   btn({ x: 60, y: 1010, w: 200, h: 100 }, '뒤로', 'gray', 30, () => goTab(S.raid ? 'arena' : 'lobby'));
-  btn({ x: 290, y: 1000, w: 370, h: 120 }, '출전!', 'green', 44, () => { META.picks = S.picks.slice(); saveMeta(); if (S.raid) startRaid(S.picks); else startLevel(S.level, { picks: S.picks }); });
+  btn({ x: 290, y: 1000, w: 370, h: 120 }, '출전!', 'green', 44, () => { META.picks = S.picks.slice(); META.tut.prep = true; if (S.level >= 2) META.tut.next = true; saveMeta(); if (S.raid) startRaid(S.picks); else startLevel(S.level, { picks: S.picks }); });
 }
 // ---------- 볼 탭 ----------
 function renderBalls() {
@@ -2190,7 +2189,7 @@ function renderBallPopup() {
   uiLabel({ common: '일반', uncommon: '고급', rare: '레어', unique: '유니크' }[rarityOf(f)] + ' · 컬렉션 Lv' + b.lv + ' (피해 +' + (b.lv - 1) * 10 + '%)', CX, 590, 22, RCOL[rarityOf(f)], 'center', 900);
   uiWrap(FN[f].d(fv(f, 1)), CX, 640, 24, 500, 2, UI.ink, 'center', 700);
   uiLabel('사본 ' + b.copies + ' / ' + b.lv, CX, 720, 24, '#6a5a8a', 'center', 900);
-  btn({ x: 110, y: 790, w: 240, h: 100 }, eq ? '해제' : '장착', eq ? 'gray' : 'blue', 32, () => { if (eq) { if (META.equip.length <= 1) return; META.equip = META.equip.filter(x => x !== f); } else { if (META.equip.length >= 8) return; META.equip.push(f); } sfx('click'); saveMeta(); }, !eq && META.equip.length >= 8);
+  btn({ x: 110, y: 790, w: 240, h: 100 }, eq ? '해제' : '장착', eq ? 'gray' : 'blue', 32, () => { if (eq) { if (META.equip.length <= 1) return; META.equip = META.equip.filter(x => x !== f); } else { if (META.equip.length >= 8) return; META.equip.push(f); META.tut.equip = true; } sfx('click'); saveMeta(); }, !eq && META.equip.length >= 8);
   btn({ x: 370, y: 790, w: 240, h: 100 }, b.lv >= 10 ? '최대' : '강화', 'green', 32, () => { b.copies -= b.lv; b.lv++; sfx('up'); saveMeta(); }, !canUpBall(f));
 }
 // ---------- 캐릭터 탭 ----------
@@ -2357,16 +2356,159 @@ function renderJackpot() {
   if (!j.flown) hit({ x: 0, y: 0, w: W, h: H }, () => { j.t = Math.max(j.t, s3 + .3); }); // 누르면 빨리 넘어감
 }
 
-// ===================== 14. 사운드 · 진동 (M4에서 채움) =====================
-function sfx(name) {}
-function buzz(p) {}
+// ===================== 튜토리얼 힌트 (각 1회, META.tut. 한 번에 하나만) =====================
+const newBalls = () => Object.keys(META.balls).filter(f => !META.equip.includes(f) && f !== (CHAR[META.sel] || {}).ball); // 시작 볼은 장착 안 해도 들고 나감
+const newBallOwned = () => newBalls().length > 0;
+function currentHint() {
+  const T = META.tut, m = S.mode;
+  if (m === 'lobby') {
+    if (!T.pin && META.pinball > 0) return { text: '핀볼을 머신에 쏴서 성장해요!', tx: tabX('select'), ty: TABY };
+    if (T.pin && !META.firstCycle && !T.equip && newBallOwned()) return { text: '새 볼이 생겼어요. 장착해요!', tx: tabX('balls'), ty: TABY };
+    if (!T.chars && (Object.keys(META.shards).length || HUMAN_IDS.some(canUpChar))) return { text: '캐릭터 조각이 생겼어요', tx: tabX('chars'), ty: TABY };
+    if (!T.raid && (META.best || 0) >= 2) return { text: '침략이 열렸어요!', tx: tabX('arena'), ty: TABY };
+    if (T.equip && !T.next && (META.best || 0) >= 1) return { text: '강해졌어요. 다음 레벨에 도전!', tx: CX, ty: 930 };
+  }
+  if ((m === 'select') && !T.push && META.pinball >= 1) return { text: 'PUSH를 꾹 누르고 있어요', tx: 619, ty: 216, below: true };
+  if (m === 'balls' && !T.equip && !S.popup && newBallOwned()) { const f = newBalls()[0], i = ALL_FNS.indexOf(f); return { text: '새 볼을 눌러 장착!', tx: 18 + (i % 5) * 138 + 65, ty: 190 + Math.floor(i / 5) * 162 + 152, below: true }; }
+  if (m === 'balls' && !T.equip && S.popup) return { text: '장착을 눌러요', tx: 230, ty: 890, below: true };
+  if (m === 'prep' && !T.prep) return { text: '볼 2개를 골라 출전!', tx: 475, ty: 1000 };
+  return null;
+}
+function hintUpdate(dt) {
+  const T = META.tut, m = S.mode; let ch = false;
+  if (m === 'select' && !T.pin) T.pin = ch = true;
+  if (m === 'machine' && !T.push) T.push = ch = true;
+  if (m === 'chars' && !T.chars) T.chars = ch = true;
+  if (m === 'arena' && !T.raid) T.raid = ch = true;
+  if (ch) saveMeta();
+}
+function drawHint() {
+  const h = currentHint(); if (!h) return;
+  const bob = Math.sin(performance.now() / 160) * 8, w = Math.min(560, 60 + h.text.length * 24), x = Math.max(16, Math.min(W - w - 16, h.tx - w / 2)), y = h.below ? h.ty + 40 : h.ty - 150;
+  pxBox(x, y + bob, w, 72, UI.cream, { drop: true }); uiLabel(h.text, x + w / 2, y + bob + 46, 26, UI.ink, 'center', 900);
+  const ay = h.below ? h.ty + 10 + bob : h.ty - 70 + bob, d = h.below ? -1 : 1;
+  ctx.beginPath(); ctx.moveTo(h.tx - 20, ay); ctx.lineTo(h.tx + 20, ay); ctx.lineTo(h.tx, ay + 30 * d); ctx.closePath(); ctx.fillStyle = '#ff3a3a'; ctx.fill(); uiLine(UI.ink, 4);
+}
+function battleHint() { // 레벨 1 첫 도전: 이동·조준 → 첫 레벨업 카드 → 첫 캡슐
+  const T = META.tut;
+  if (S.mode === 'levelup' && !T.card) return '카드를 하나 골라 볼을 늘리거나 강화해요';
+  if ((S.mode === 'freeup' || S.mode === 'itemcap') && !T.cap) return S.mode === 'freeup' ? '볼 캡슐 = 무료 강화! 볼 레벨이 올라요' : '장비 캡슐: 아이템 하나를 골라요';
+  if (S.mode === 'play' && S.tutorial && !T.move && S.t < 9) return S.t < 4.5 ? '왼쪽 아래를 끌어서 움직여요' : '공은 자동으로 쏴요 · 오른쪽 아래로 직접 조준';
+  return null;
+}
+function drawBattleHint() {
+  const s = battleHint(); if (!s) return;
+  const y = S.mode === 'play' ? 96 : 1050, bob = Math.sin(performance.now() / 160) * 6;
+  pxBox(60, y + bob, 600, 70, UI.cream, { drop: true }); uiLabel(s, CX, y + bob + 45, 26, UI.ink, 'center', 900);
+}
+
+// ===================== 보스 처치 연출 =====================
+// K.O.(어둡게 + 하얀 몸) → 몸 곳곳 연쇄 폭발 6번(0.12초) → 흰 번쩍 + 대폭발·타원 충격파 → (최종) 핀볼 24개 분수 + "처치!"
+function bossDown(e) {
+  const final = e.boss === 'final', T = final ? .5 : .35;
+  S.boss = null;
+  S.ko = { t: 0, T, x: e.x, y: e.y, bid: e.bid, ps: enemyPs(e), r: e.r, final, boomT: T + .75 };
+  S.hs = T; sfx('kill'); buzz([80, 40, 120]);
+  for (let i = 0; i < 6; i++) later(i * .12, () => { addFx({ k: 'px', x: e.x + rand(-e.r, e.r) * .8, y: e.y + rand(-e.r, e.r) * .8, r: e.r * .45, t: 0, T: .35 }); sfx('hit'); });
+  later(.75, () => {
+    S.ko.gone = true;
+    addFx({ k: 'flash', t: 0, T: .25, c: '#ffffff' }); addFx({ k: 'px', x: e.x, y: e.y, r: e.r * 1.8, t: 0, T: .6 }); addFx({ k: 'shock', x: e.x, y: e.y, r: e.r, t: 0, T: .6 });
+    shake(final ? 26 : 16, .5); sfx('boss');
+    if (!final) { // 중간 보스: 보드 확장 + 볼 캡슐·장비 캡슐
+      S.gems.push({ x: e.x, y: e.y, vy: -80, v: e.xp });
+      S.fieldFrom = S.fieldW; S.fieldTo = FIELD.openW; S.fieldT = FIELD.openTime;
+      dropCap(e.x - 30, e.y, 'ball'); dropCap(e.x + 30, e.y, 'equip');
+      S.ko = null;
+    } else {
+      for (let i = 0; i < 24; i++) { const a = -Math.PI / 2 + rand(-.9, .9), v = rand(300, 620); addFx({ k: 'coin', x: e.x, y: e.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, T: 1.6, suck: .8 + i * .02 }); }
+      S.kotext = { t: 0 }; sfx('win');
+    }
+  });
+  if (!final) { S.phase = 'waves'; S.wave++; S.waveT = 0; S.spawnT = 1.6; }
+  else { S.winT = .75 + 2.2; for (const o of S.enemies) if (!o.dead) o.dead = true; }
+}
+function drawKO() {
+  const k = S.ko; if (!k) return;
+  if (k.t < k.T) { ctx.fillStyle = 'rgba(10,4,20,.55)'; ctx.fillRect(0, TOP, W, BOT - TOP); }
+  if (!k.gone) spr(SPR[k.bid + '_flash'], k.x, k.y, k.ps);
+  if (k.t < k.T) uiTxt('K.O.', k.x, k.y - k.r - 30, 48, UI.gold);
+}
+
+// ===================== 설정 팝업 =====================
+function openSettings() { if (S.mode === 'settings') return; sfx('click'); S.setPrev = S.mode; S.mode = 'settings'; }
+function closeSettings() { S.mode = S.setPrev || 'lobby'; saveMeta(); }
+function renderSettings() {
+  const st = META.set, inBattle = !MENU_MODES.includes(S.setPrev);
+  uiPopup(70, 250, 580, 800); uiRibbon(CX, 280, 300, '설정', 'purple', 36);
+  const row = (y, label) => uiLabel(label, 110, y + 52, 28, UI.ink, 'left', 900);
+  [['효과음', 'sfx'], ['음악', 'music']].forEach(([lb, key], i) => {
+    const y = 380 + i * 120; row(y, lb);
+    btn({ x: 300, y: y + 10, w: 76, h: 76 }, '−', 'gray', 34, () => { st[key] = Math.max(0, +(st[key] - .2).toFixed(1)); sfx('click'); });
+    uiBar(386, y + 34, 160, 28, st[key], ['#ffe45a', '#e8a81a']);
+    btn({ x: 556, y: y + 10, w: 76, h: 76 }, '+', 'gray', 34, () => { st[key] = Math.min(1, +(st[key] + .2).toFixed(1)); sfx('click'); });
+  });
+  row(620, '진동'); btn({ x: 300, y: 630, w: 332, h: 80 }, st.vib ? '켜짐' : '꺼짐', st.vib ? 'green' : 'gray', 30, () => { st.vib = !st.vib; buzz(40); sfx('click'); });
+  row(740, '조작'); btn({ x: 300, y: 750, w: 332, h: 80 }, st.ctrl === 'tap' ? '탭 조준' : '좌우 스틱', 'blue', 30, () => { st.ctrl = st.ctrl === 'tap' ? 'stick' : 'tap'; IN.tapAim = null; sfx('click'); });
+  if (inBattle) btn({ x: 110, y: 900, w: 240, h: 96 }, '로비로', 'red', 32, () => { S.mode = 'play'; endBattle(false); });
+  btn({ x: inBattle ? 370 : 230, y: 900, w: 240, h: 96 }, '닫기', 'orange', 32, () => closeSettings());
+}
+
+// ===================== 14. 사운드 (WebAudio 합성) · 진동 =====================
+let AC = null, SFX_BUS = null, MUS_BUS = null;
+const SFX_LAST = {};
+function audioInit() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); SFX_BUS = AC.createGain(); MUS_BUS = AC.createGain(); SFX_BUS.connect(AC.destination); MUS_BUS.connect(AC.destination); musicStart(); } catch (e) { AC = null; }
+}
+function tone(type, f0, f1, dur, vol, t0 = 0) {
+  const t = AC.currentTime + t0, o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+  o.connect(g); g.connect(SFX_BUS); o.start(t); o.stop(t + dur + .02);
+}
+function noise(dur, vol, freq = 2000, t0 = 0) {
+  const t = AC.currentTime + t0, n = Math.floor(AC.sampleRate * dur), buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain(); f.type = 'lowpass'; f.frequency.value = freq; g.gain.value = vol;
+  s.buffer = buf; s.connect(f); f.connect(g); g.connect(SFX_BUS); s.start(t);
+}
+const SFX = {
+  shot: () => tone('square', 880, 620, .05, .05), hit: () => { tone('square', 240, 110, .05, .06); noise(.03, .05, 3000); },
+  kill: () => { noise(.12, .12, 1200); tone('triangle', 180, 60, .12, .1); }, block: () => { tone('square', 1300, 1300, .03, .06); tone('square', 1000, 1000, .03, .05, .04); },
+  gem: () => tone('triangle', 1320, 1760, .06, .06), lvup: () => [523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, .14, .1, i * .07)),
+  up: () => { tone('square', 660, 990, .12, .07); tone('triangle', 990, 1320, .12, .06, .08); }, fuse: () => { tone('sawtooth', 200, 1200, .6, .06); [1046, 1318, 1568].forEach((f, i) => tone('triangle', f, f, .2, .07, .5 + i * .08)); },
+  boss: () => { tone('sawtooth', 110, 70, .8, .12); noise(.5, .1, 400); }, win: () => [523, 659, 784, 1046, 1318].forEach((f, i) => tone('square', f, f, .18, .07, i * .1)),
+  lose: () => [392, 330, 262, 196].forEach((f, i) => tone('triangle', f, f * .97, .25, .1, i * .18)), hurt: () => { tone('sawtooth', 220, 80, .15, .1); noise(.08, .08, 900); },
+  launch: () => { noise(.06, .05, 5000); tone('square', 440, 880, .08, .04); }, coin: () => { tone('square', 988, 988, .05, .05); tone('square', 1319, 1319, .1, .05, .05); },
+  gift: () => [784, 988, 1175].forEach((f, i) => tone('triangle', f, f, .12, .08, i * .06)), reel: () => tone('square', 1500, 1500, .02, .04),
+  click: () => tone('square', 600, 600, .03, .04), rise: () => tone('triangle', 300, 900, .3, .08),
+};
+const SFX_GAP = { hit: .03, shot: .04, gem: .03, kill: .04, click: .03, reel: .05 };
+function sfx(name) {
+  if (!AC || !SFX[name] || IN.bot) return;
+  const now = AC.currentTime; if (now - (SFX_LAST[name] || -1) < (SFX_GAP[name] || .06)) return; SFX_LAST[name] = now; // 같은 소리 최소 간격
+  SFX_BUS.gain.value = META.set.sfx; if (META.set.sfx <= 0) return;
+  try { SFX[name](); } catch (e) {}
+}
+function buzz(p) { if (META.set.vib && !IN.bot && navigator.vibrate) try { navigator.vibrate(p); } catch (e) {} }
+// 음악: 짧은 베이스 + 아르페지오 루프를 조금씩 미리 예약
+let MUS_T = 0, MUS_I = 0;
+function musicStart() { MUS_T = AC.currentTime + .1; setInterval(musicTick, 120); }
+function musicTick() {
+  if (!AC) return; MUS_BUS.gain.value = META.set.music * .5;
+  const bass = [110, 110, 131, 98], arp = [440, 523, 659, 523, 494, 587, 698, 587];
+  while (MUS_T < AC.currentTime + .4) {
+    const i = MUS_I++, t = MUS_T - AC.currentTime;
+    if (META.set.music > 0) { const mk = (type, f, d, v) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = type; o.frequency.value = f; g.gain.setValueAtTime(v, MUS_T); g.gain.exponentialRampToValueAtTime(.0008, MUS_T + d); o.connect(g); g.connect(MUS_BUS); o.start(MUS_T); o.stop(MUS_T + d + .02); };
+      if (i % 4 === 0) mk('triangle', bass[Math.floor(i / 8) % 4], .4, .16); mk('square', arp[i % 8] * (Math.floor(i / 32) % 2 ? 1.122 : 1), .1, .025); }
+    MUS_T += .18; void t;
+  }
+}
+
 
 // ===================== 흐름 =====================
 function startLevel(id, o = {}) { if (id === 1 && !META.tut.lv1) o.tutorial = true; if (o.tutorial) o.picks = []; reset(id, o); }
-// M4·M5에서 채움
-function drawHint() {}
-function hintUpdate(dt) {}
-function openSettings() {}
+// M5에서 채움
 function startRaid() {}
 function renderArena() { ctx.drawImage(MENU_BG, 0, 0, W, H); drawTopBar(); uiTxt('침략 준비 중', CX, 600, 40); drawTabBar(); }
 
@@ -2381,17 +2523,18 @@ function stickUpdate(st, pt) {
   else st.a = l > 14 ? Math.atan2(dy, dx) : null;
 }
 cv.addEventListener('pointerdown', ev => {
-  ev.preventDefault();
+  ev.preventDefault(); audioInit();
   const pt = toLogical(ev);
   if (ev.pointerType === 'mouse') IN.mouse = pt;
   if (S.mode === 'play' && pt.y >= BOT) { // 받침대 + 볼 슬롯 줄 = 스틱 영역
-    const kind = pt.x < W / 2 ? 'move' : 'aim';
+    const kind = META.set.ctrl === 'tap' || pt.x < W / 2 ? 'move' : 'aim'; // 탭 조준: 아래 어디든 이동 스틱
     const st = { id: ev.pointerId, kind, ox: pt.x, oy: pt.y, cx: pt.x, cy: pt.y, v: null, a: null };
     if (kind === 'move') IN.stickL = st; else IN.stickR = st;
     try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
     return;
   }
   if (hitBtn(pt)) return;
+  if (S.mode === 'play' && pt.y > TOP && pt.y < BOT && META.set.ctrl === 'tap') { IN.tapAim = Math.atan2(pt.y - S.p.y, pt.x - S.p.x); return; } // 보드를 탭한 각도로 고정 조준
   if (S.mode === 'play' && pt.y > TOP && pt.y < BOT && ev.pointerType === 'mouse' && IN.autoAim) IN.moveTo = pt;
 });
 cv.addEventListener('pointermove', ev => {
@@ -2409,7 +2552,8 @@ cv.addEventListener('pointerup', endPointer);
 cv.addEventListener('pointercancel', endPointer);
 addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', ev => {
-  IN.keys.add(ev.code);
+  IN.keys.add(ev.code); audioInit();
+  if (ev.code === 'Escape') { if (S.mode === 'settings') closeSettings(); else if (S.mode !== 'title' && S.mode !== 'result') openSettings(); return; }
   const m = S.modal, d = ev.key;
   if (ev.code === 'KeyT') IN.autoAim = !IN.autoAim;
   if (ev.code === 'KeyP') { if (S.mode === 'play') S.mode = 'pause'; else if (S.mode === 'pause') S.mode = 'play'; }
@@ -2428,12 +2572,14 @@ loadMeta();
 S = META.seenTitle ? menuState('lobby') : { mode: 'title', t: 0 };
 let acc = 0, last = performance.now();
 function frame(now) {
+  requestAnimationFrame(frame);
   let dt = (now - last) / 1000; last = now;
   if (dt > .1) dt = .1;
   acc += dt;
-  while (acc >= STEP) { update(STEP); acc -= STEP; }
-  render();
-  requestAnimationFrame(frame);
+  try {
+    while (acc >= STEP) { update(STEP); acc -= STEP; }
+    render();
+  } catch (e) { acc = 0; console.error(e); }
 }
 requestAnimationFrame(frame);
 
