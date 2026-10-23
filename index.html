@@ -170,7 +170,7 @@ const ITEM = {
   horn: { name: '전쟁 나팔', v: [.12, .18, .25], col: '#e8731a', d: v => '일반 볼 피해 +' + P(v) },
   spear: { name: '사냥꾼의 창', v: [.08, .12, .16], col: '#6a8a4a', d: v => '앞 줄 치명 +' + P(v) },
   amulet: { name: '명사수 부적', v: [.25, .35, .5], col: '#3a96f0', d: v => '치명 피해 +' + P(v) },
-  cloak: { name: '유령 망토', v: [1, 2, 3], col: '#5a5a8a', d: v => '위 벽 전 ' + v + '마리 관통' },
+  cloak: { name: '유령 망토', v: [1, 2, 3], col: '#5a5a8a', d: v => '위 벽 전 ' + v + '마리 관통, 피해 +10%' },
   corset: { name: '유령 코르셋', v: [.12, .18, .25], col: '#8a6ad0', d: v => '옆 타격 관통, 피해 +' + P(v) },
   silver: { name: '은탄환', v: [.12, .18, .25], col: '#b8c0d0', d: v => '벽 전 피해 +' + P(v) },
   hourglass: { name: '모래시계', v: [.3, .45, .6], col: '#e8b84a', d: v => '첫 타 피해 +' + P(v) },
@@ -1065,8 +1065,7 @@ function launch(slot, a) {
   const spd = pr.spd * (hb ? .7 : 1);
   const b = { x: p.x + Math.cos(a) * PLAYER.r, y: p.y + Math.sin(a) * PLAYER.r, spin: 0, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, spd, base: pr.spd, hbMax: hb, r: pr.r, slot, pr, fns: pr.fns, dmg: pr.dmg,
     bounced: false, ret: false, hit: new Map(), rot: 0, walls: 0, wallBonus: false, hits: 0,
-    pierce: pr.evo === 'lance' ? 1e9 : (pr.v.pierce ? Math.round(pr.v.pierce.n) : 0) + itemV('cloak'), ric: pr.v.ricochet ? Math.round(pr.v.ricochet.n) : 0 };
-  if (hasItem('robe')) b.pierce = 1e9;
+    pierce: pr.evo === 'lance' ? 1e9 : (pr.v.pierce ? Math.round(pr.v.pierce.n) : 0), cloak: itemV('cloak'), robe: hasItem('robe'), ric: pr.v.ricochet ? Math.round(pr.v.ricochet.n) : 0 };
   fixVy(b);
   slot.out = true;
   S.balls.push(b);
@@ -1341,8 +1340,8 @@ function kill(e, o = {}) {
 function hurtPlayer(dmg, o = {}) {
   const p = S.p;
   if (p.inv > 0 || S.mode !== 'play' || (S.ko && S.ko.final)) return false;
-  if (rand() < itemV('eye')) { addNum(p.x, p.y - p.r - 6, '회피', false, '#9fe0ff'); return false; }
-  if (S.charmT <= 0 && hasItem('charm')) { S.charmT = itemV('charm'); addNum(p.x, p.y - p.r - 6, '막음', false, '#9fe0ff'); p.inv = PLAYER.inv; return false; }
+  if (rand() < itemV('eye')) { addNum(p.x, p.y - p.r - 6, '회피', false, '#9fe0ff'); p.inv = .3; return false; }
+  if (S.charmT <= 0 && hasItem('charm')) { S.charmT = itemV('charm'); addNum(p.x, p.y - p.r - 6, '막음', false, '#9fe0ff'); p.inv = .5; return false; }
   const curse = p.curseT > 0 ? 1.3 : 1;
   let d = dmg * S.L.dmgMul * curse * 100 / (100 + p.def) * (1 - S.mods.dmgRed);
   if (p.shield > 0) { const s = Math.min(p.shield, d); p.shield -= s; d -= s; }
@@ -1350,7 +1349,7 @@ function hurtPlayer(dmg, o = {}) {
   addNum(p.x, p.y - p.r - 6, Math.round(d), false, '#ff5a5a');
   sfx('hurt'); buzz(30);
   const th = itemV('thorns') + (hasItem('mask') ? 3 : 0);
-  if (th) S.enemies.filter(e => !e.boss && !e.dead).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).slice(0, th).forEach(e => kill(e));
+  if (th) S.enemies.filter(e => !e.boss && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 260).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)).slice(0, th).forEach(e => kill(e));
   if (p.hp <= 0) {
     const ph = S.owned.find(s => s.fns.includes('phoenix'));
     if (ph && !S.phoenixUsed) { S.phoenixUsed = true; p.hp = p.maxHp * fv('phoenix', effLv(ph)).hp; p.inv = 2; addNum(p.x, p.y - 50, '부활!', true, '#ff6a3a'); sfx('lvup'); }
@@ -1366,11 +1365,11 @@ function onHit(b, e, nx, ny, vyIn) {
   b.hits++;
   // 방패: 아래(플레이어 쪽)에서 위로 와서 몸 아래쪽에 닿은 공
   const guard = (d.guard || (B && B.guard) || (e.guardT > 0)) && vyIn < 0 && ny > .35;
-  const side = B && B.guardSide && nx < -.8; // 탱크: 왼쪽 방패 면
+  const side = B && B.guardSide && vyIn < 0 && b.y > e.y - .3 * e.r && b.x < e.x + B.guardSide * e.r; // 탱크: 왼쪽 큰 방패
   let pass = 1;
   if (guard || side) { pass = v.acid ? v.acid.pct : 0; if (!pass) { addNum(e.x, e.y - e.r, '막힘', false, '#9fe0ff'); sfx('block'); return; } }
   let dmg = b.dmg * pass;
-  if (b.baby) dmg *= .4;
+  if (b.baby && !b.tur) dmg *= .4;
   // 아이템 보너스
   if (!b.wallTouched) { dmg *= 1 + itemV('silver') + (hasItem('watch') ? .5 : 0); }
   else if (hasItem('watch')) dmg *= 1.15;
@@ -1378,7 +1377,7 @@ function onHit(b, e, nx, ny, vyIn) {
   else if (itemV('hourglass')) dmg *= 1 + itemV('hourglass') * Math.pow(.75, b.walls);
   if (b.wallBonus) { dmg *= 1 + itemV('wheel'); b.wallBonus = false; }
   if (hasItem('tire')) dmg *= Math.min(2, Math.pow(1.1, b.walls));
-  if (b.pierceHit) dmg *= 1 + (hasItem('robe') ? .3 : .15);
+  if (b.ghost) dmg *= 1 + (b.robe ? .3 : .1); // 유령 망토 +10% / 유령 예복 +30% (위 벽 전까지)
   if (b.sideHit) dmg *= 1 + itemV('corset');
   // 기능 보너스
   const tough = e.boss || e.elite;
@@ -1389,7 +1388,7 @@ function onHit(b, e, nx, ny, vyIn) {
   let cc = RULE.crit + S.mods.critPlus + (v.crit ? v.crit.pct : 0) + (pr.evo === 'sniper' ? .3 : 0);
   if (S.mods.spear && e.y < S.p.y && Math.abs(e.x - S.p.x) < 70) cc += S.mods.spear;
   const crit = rand() < cc;
-  if (crit) { dmg *= (pr.evo === 'sniper' ? 3 : PLAYER.critMul) * (1 + S.mods.critDmg); S.hs = Math.max(S.hs, .03); if (hasItem('mercy') && !tough && rand() < .02) dmg = e.hp + 1; }
+  if (crit) { dmg *= (pr.evo === "sniper" ? 3 : PLAYER.critMul) + S.mods.critDmg; /* 부적: ×2 → ×2.25 */ S.hs = Math.max(S.hs, .03); if (hasItem('mercy') && !tough && rand() < .02) dmg = e.hp + 1; }
   const col = pr.fns.length ? FN[pr.fns[randi(0, pr.fns.length - 1)]].color : '#ffffff';
   for (let i = 0; i < (crit ? 6 : 3); i++) addFx({ k: 'dot', x: b.x + rand(-8, 8), y: b.y + rand(-8, 8), t: 0, T: .18, c: col });
   sfx('hit');
@@ -1641,7 +1640,7 @@ function updateBalls(dt) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.x - b.r < B.l) { b.x = B.l + b.r; b.vx = Math.abs(b.vx); spinBounce(b, 1, 0); wallHit(b); }
     else if (b.x + b.r > B.r) { b.x = B.r - b.r; b.vx = -Math.abs(b.vx); spinBounce(b, -1, 0); wallHit(b); }
-    if (b.y - b.r < TOP) { b.y = TOP + b.r; b.vy = Math.abs(b.vy); spinBounce(b, 0, 1); wallHit(b); b.topTouched = true; if (itemV('cloak') && !hasItem('robe')) b.pierce = 0; }
+    if (b.y - b.r < TOP) { b.y = TOP + b.r; b.vy = Math.abs(b.vy); spinBounce(b, 0, 1); wallHit(b); b.topTouched = true; } // 위 벽에 닿아도 볼 자체 관통 수는 그대로
     if (b.y + b.r >= BOT) { if (b.baby) b.dead = true; else b.ret = true; continue; }
     // 화염 탱크의 회전 막대에 공이 튕김
     if (S.boss && BOSS[S.boss.bid].rod && !S.boss.entering) rodBounce(b, S.boss);
@@ -1656,9 +1655,13 @@ function updateBalls(dt) {
       if (last !== undefined && S.t - last < .12) continue;
       b.hit.set(e.id, S.t);
       const d = Math.sqrt(d2) || 1, nx = dx / d, ny = dy / d, vyIn = b.vy;
-      b.sideHit = Math.abs(nx) > .7 && (itemV('corset') || hasItem('robe'));
-      b.pierceHit = b.pierce > 0 || b.sideHit;
-      if (b.pierceHit) { if (!b.sideHit) b.pierce--; } // 관통: 튕기지 않고 지나감
+      // 관통: 볼 자체 관통 → 유령 망토(위 벽 전까지 v마리, 예복은 전부) → 코르셋(옆 타격)
+      b.ghost = false; b.sideHit = false;
+      if (b.pierce > 0) { b.pierce--; b.pierceHit = true; }
+      else if (!b.topTouched && (b.robe || b.cloak > 0)) { if (!b.robe) b.cloak--; b.ghost = b.pierceHit = true; }
+      else if (Math.abs(nx) > .7 && itemV('corset')) b.sideHit = b.pierceHit = true;
+      else b.pierceHit = false;
+      if (b.pierceHit) { /* 튕기지 않고 지나감 */ }
       else {
         const dot = b.vx * nx + b.vy * ny;
         if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; }
@@ -1766,8 +1769,8 @@ function updateShots(dt) {
       s.dead = true;
       const mv = itemV('mirror') || (hasItem('fate') ? .2 : 0);
       if (mv && rand() < mv) { const t = nearest(p.x, p.y, 1)[0]; if (t) { addFx({ k: 'zap', x: p.x, y: p.y, x2: t.x, y2: t.y, t: 0, T: .2, c: '#c8f0ff' }); hurt(t, s.dmg * 3 + p.atk); } continue; }
+      const qv = itemV('quiver') || (hasItem('fate') ? .3 : 0); if (qv && rand() < qv) { heal(hasItem('fate') ? 3 : 2); addNum(p.x, p.y - p.r - 6, '+HP', false, '#7dff8a'); continue; } // 화살통: 탄은 피해 없이 사라짐
       if (hurtPlayer(s.dmg)) { if (s.fx === 'slow') p.slowT = 2; if (s.fx === 'dot') { p.dot = s.dmg * .3; p.dotT = 3; } if (s.fx === 'curse') p.curseT = 4; }
-      const qv = itemV('quiver') || (hasItem('fate') ? .3 : 0); if (qv && rand() < qv) heal(hasItem('fate') ? 3 : 2);
     }
   }
   S.shots = S.shots.filter(s => !s.dead);
@@ -1819,9 +1822,14 @@ function updateGems(dt) {
 function updateItems(dt) {
   const p = S.p;
   const on = itemV('onion'), aura = hasItem('stench');
-  if (on || aura) { const r = aura ? 130 : 110; for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - p.x, e.y - p.y) < r + e.r) { e.hp -= p.atk * (on || .4) * dt; if (aura && !e.boss && !e.auraTry) { e.auraTry = true; if (rand() < .2) kill(e); } if (e.hp <= 0) kill(e); } }
+  if (on || aura) { // 0.25초마다 피해 (악취 등딱지는 초당 공격력 60%)
+    S.onionT = (S.onionT || 0) - dt;
+    if (S.onionT <= 0) { S.onionT = .25; const r = aura ? 130 : 110; for (const e of S.enemies) if (!e.dead && !(e.rise > 0) && Math.hypot(e.x - p.x, e.y - p.y) < r + e.r) { hurt(e, p.atk * (aura ? .6 : on) * .25, { quiet: true }); if (aura && !e.boss && !e.dead && !e.auraTry) { e.auraTry = true; if (rand() < .2) kill(e); } } }
+  }
   const tv = itemV('turret') || (hasItem('battery') ? 1.5 : 0);
-  if (tv) { S.turretT -= dt; if (S.turretT <= 0) { S.turretT = tv; const n = hasItem('battery') ? 2 : 1; for (let i = 0; i < n; i++) { const a = S.t * 2 + i * Math.PI, tx = p.x + Math.cos(a) * 40, ty = p.y + Math.sin(a) * 40, t = nearestEnemy(tx, ty, visibleEnemies()); if (t) { addFx({ k: 'zap', x: tx, y: ty, x2: t.x, y2: t.y, t: 0, T: .15, c: '#ffe14a' }); hurt(t, p.atk * .8); } } } }
+  if (tv) { S.turretT -= dt; if (S.turretT <= 0) { S.turretT = tv; const n = hasItem('battery') ? 2 : 1; // 몸에서 46px 떨어져 도는 포탑이 조준 방향으로 작은 공(r6, 공격력 80%, 3초)
+    for (let i = 0; i < n; i++) { const a = S.t * 2 + i * Math.PI, tx = p.x + Math.cos(a) * 46, ty = p.y + Math.sin(a) * 46, sp = RULE.ballSpeed, d = p.atk * .8;
+      S.balls.push({ x: tx, y: ty, vx: Math.cos(p.aim) * sp, vy: Math.sin(p.aim) * sp, spd: sp, base: sp, r: 6, slot: null, baby: true, tur: true, life: 3, pr: { fns: [], v: {}, dmg: d }, fns: [], dmg: d, hit: new Map(), rot: 0, spin: 0, walls: 0, hits: 0, pierce: 0, ric: 0 }); fixVy(S.balls[S.balls.length - 1]); } } }
 }
 function xpNeed(lv) { return RULE.xpBase + RULE.xpPer * lv; }
 function gainXp(v) { S.xp += v; while (S.xp >= xpNeed(S.lv)) { S.xp -= xpNeed(S.lv); S.lv++; S.pendLv++; } }
@@ -1936,7 +1944,7 @@ function drawPlayer() {
   if (p.shield > 0) { ctx.globalAlpha = .35; ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 4, 0, TAU); ctx.fillStyle = '#9fe0ff'; ctx.fill(); ctx.globalAlpha = 1; }
   const g = p.walk ? (Math.floor(p.walk) % 2 ? 1 : -1) : 0;
   spr(heroSpr(META.sel, p.aim, g), p.x, p.y, 2);
-  if (itemV('turret') || hasItem('battery')) { const n = hasItem('battery') ? 2 : 1; for (let i = 0; i < n; i++) { const a = S.t * 2 + i * Math.PI; uiItem('turret', p.x + Math.cos(a) * 40, p.y + Math.sin(a) * 40, 10); } }
+  if (itemV('turret') || hasItem('battery')) { const n = hasItem('battery') ? 2 : 1; for (let i = 0; i < n; i++) { const a = S.t * 2 + i * Math.PI; uiItem('turret', p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46, 10); } }
 }
 function drawHaz(h) {
   if (h.k === 'wave') {
