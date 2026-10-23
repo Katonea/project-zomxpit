@@ -2051,6 +2051,9 @@ function drawShot(s) {
   if (s.k === 'arrow') { ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.vy, s.vx)); spr(SPR_BULLET, 0, 0, 2); ctx.restore(); }
   else spr(starSprite(s.c || '#ff5a6a', '#fff', Math.floor(S.t * 8) % 2), s.x, s.y, 2);
 }
+function drawBloodPools(list) { // 바닥 핏자국 4초 (전투·타이틀 공용)
+  for (const bl of list) { ctx.globalAlpha = Math.min(1, bl.t) * .7; ctx.fillStyle = '#4a0e0a'; for (let k = 0; k < 5; k++) { const a = bl.seed + k * 1.7, d = bl.r * .5 * bhash(bl.seed + k); ctx.fillRect(Math.round((bl.x + Math.cos(a) * d - bl.r * .35) / 4) * 4, Math.round((bl.y + Math.sin(a) * d * .5 - 4) / 4) * 4, Math.round(bl.r * .7 / 4) * 4, 8); } ctx.globalAlpha = 1; }
+}
 function drawFx(f) {
   const a = 1 - f.t / f.T;
   ctx.globalAlpha = Math.max(0, a);
@@ -2129,7 +2132,7 @@ function renderBattle() { // B.1.1 그리는 순서. 흔들림은 play일 때 �
   if (S.shake > 0 && S.mode === 'play') ctx.translate(Math.round(rand(-1, 1) * S.shake / 2), Math.round(rand(-1, 1) * S.shake / 2));
   drawField();
   ctx.save(); const B = bounds(); ctx.beginPath(); ctx.rect(B.l, TOP, B.r - B.l, BOT - TOP); ctx.clip();
-  for (const bl of S.blood) { ctx.globalAlpha = Math.min(1, bl.t) * .7; ctx.fillStyle = '#4a0e0a'; for (let k = 0; k < 5; k++) { const a = bl.seed + k * 1.7, d = bl.r * .5 * bhash(bl.seed + k); ctx.fillRect(Math.round((bl.x + Math.cos(a) * d - bl.r * .35) / 4) * 4, Math.round((bl.y + Math.sin(a) * d * .5 - 4) / 4) * 4, Math.round(bl.r * .7 / 4) * 4, 8); } ctx.globalAlpha = 1; }
+  drawBloodPools(S.blood);
   for (const h of S.haz) if (h.k === 'wave') drawHaz(h);
   for (const h of S.haz) if (h.k !== 'wave') drawHaz(h);
   drawPickups();
@@ -2304,9 +2307,26 @@ function renderResult() {
 }
 // ---------- 타이틀 (B.12.1) ----------
 function titleInit() {
-  const T = { ball: { x: 360, y: 700, vx: 330, vy: -420 }, z: [] };
-  for (let i = 0; i < 7; i++) T.z.push({ x: 120 + (i % 4) * 160 + (i > 3 ? 80 : 0), y: 420 + Math.floor(i / 4) * 260 + (i % 2) * 60, type: ['knight', 'shield', 'priest', 'boar', 'bomber', 'archer', 'mage'][i], walk: i, hit: 0 });
+  const T = { ball: { x: 360, y: 700, vx: 330, vy: -420 }, z: [], fx: [], blood: [] };
+  for (let i = 0; i < 7; i++) T.z.push({ x: 120 + (i % 4) * 160 + (i > 3 ? 80 : 0), y: 420 + Math.floor(i / 4) * 260 + (i % 2) * 60, type: ['knight', 'shield', 'priest', 'boar', 'bomber', 'archer', 'mage'][i], walk: i, hit: 0, dead: 0, rise: 0 });
   return T;
+}
+// 타이틀 좀비가 공에 맞으면 인게임처럼 피·살점을 튀기며 죽고(사용자 지시), 잠시 뒤 빈 자리 땅에서 솟아오름
+const TITLE_Z = { respawn: 1.4, rise: .8, minGap: 90 };
+function titleKill(T, z) {
+  z.dead = TITLE_Z.respawn;
+  for (let i = 0; i < 12; i++) { const a = rand(TAU), v = rand(60, 220), chunk = rand() < .3; T.fx.push({ x: z.x, y: z.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, T: rand(.4, .7), s: chunk ? 8 : 5, c: chunk ? (rand() < .5 ? '#e8e0d0' : '#6a9838') : (rand() < .5 ? '#c8302a' : '#6a1010') }); }
+  T.blood.push({ x: z.x, y: z.y + 20 * .6, r: 20 * rand(.6, 1), t: 4, seed: rand(1000) }); if (T.blood.length > 20) T.blood.shift();
+  sfx('kill');
+}
+function titleRespawn(T, z) {
+  const b = T.ball;
+  for (let k = 0; k < 30; k++) { // 공·다른 좀비와 떨어진 자리
+    const x = rand(90, 630), y = rand(380, 1060);
+    if (Math.hypot(x - b.x, y - b.y) < 140 || T.z.some(o => o !== z && !o.dead && Math.hypot(o.x - x, o.y - y) < TITLE_Z.minGap)) continue;
+    z.x = x; z.y = y; break;
+  }
+  z.dead = 0; z.rise = TITLE_Z.rise; z.hit = 0;
 }
 function renderTitle() {
   const T = S.title || (S.title = titleInit()), dt = 1 / 60, b = T.ball, now = performance.now() / 1000;
@@ -2314,8 +2334,23 @@ function renderTitle() {
   b.x += b.vx * dt; b.y += b.vy * dt;
   if (b.x < 44 + 12) { b.x = 56; b.vx = Math.abs(b.vx); } if (b.x > 676 - 12) { b.x = 664; b.vx = -Math.abs(b.vx); }
   if (b.y < 300 + 12) { b.y = 312; b.vy = Math.abs(b.vy); } if (b.y > 1120 - 12) { b.y = 1108; b.vy = -Math.abs(b.vy); }
-  for (const z of T.z) { z.walk += dt * 4; if (z.hit > 0) z.hit -= dt; const dx = b.x - z.x, dy = b.y - z.y, d = Math.hypot(dx, dy); if (d < 40 && d > 0) { const nx = dx / d, ny = dy / d, dot = b.vx * nx + b.vy * ny; if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; z.hit = .12; } b.x = z.x + nx * 40; b.y = z.y + ny * 40; } }
-  for (const z of T.z) spr(SPR[z.type + (z.hit > 0 ? '_hit' : '') + (Math.floor(z.walk) % 2 ? '1' : '')], z.x, z.y, 3);
+  for (const z of T.z) {
+    if (z.dead) { z.dead -= dt; if (z.dead <= 0) titleRespawn(T, z); continue; }
+    z.walk += dt * 4; if (z.rise > 0) { z.rise -= dt; continue; } // 솟아오르는 중: 공이 지나감
+    const dx = b.x - z.x, dy = b.y - z.y, d = Math.hypot(dx, dy);
+    if (d < 40 && d > 0) { const nx = dx / d, ny = dy / d, dot = b.vx * nx + b.vy * ny; if (dot < 0) { b.vx -= 2 * dot * nx; b.vy -= 2 * dot * ny; } b.x = z.x + nx * 40; b.y = z.y + ny * 40; titleKill(T, z); }
+  }
+  for (const f of T.fx) { f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; const k = Math.pow(.02, dt); f.vx *= k; f.vy *= k; }
+  T.fx = T.fx.filter(f => f.t < f.T);
+  for (const p of T.blood) p.t -= dt; T.blood = T.blood.filter(p => p.t > 0);
+  drawBloodPools(T.blood);
+  for (const z of T.z) {
+    if (z.dead) continue;
+    const f = Math.floor(z.walk) % 2 ? '1' : '';
+    if (z.rise > 0) { const k = 1 - z.rise / TITLE_Z.rise, h = 20 * 2.6; ctx.save(); ctx.beginPath(); ctx.rect(z.x - 40, z.y - h, 80, h * (k + .05) + 18); ctx.clip(); spr(SPR[z.type + f], z.x, z.y + (1 - k) * h, 3); ctx.restore(); px(z.x - 10, z.y + 20, 8, '#5a4636'); px(z.x + 8, z.y + 18, 6, '#5a4636'); }
+    else spr(SPR[z.type + f], z.x, z.y, 3);
+  }
+  for (const f of T.fx) { ctx.globalAlpha = Math.max(0, 1 - f.t / f.T); px(f.x, f.y, f.s, f.c); } ctx.globalAlpha = 1;
   drawBall(b.x, b.y, 12, ['fire'], now * 12);
   // 사방 벽돌 벽: 위 0~300, 아래 1120~1280, 왼쪽 0~44, 오른쪽 676~720
   const brick = (x0, y0, w, h) => { ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip(); ctx.fillStyle = '#24160f'; ctx.fillRect(x0, y0, w, h); for (let y = y0, r = 0; y < y0 + h; y += 24, r++) for (let x = x0 - (r % 2) * 16; x < x0 + w; x += 32) { const q = Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453 % 1); if (q < .1) continue; ctx.fillStyle = q < .3 ? '#40201a' : q < .6 ? '#552a20' : '#5e3024'; ctx.fillRect(x + 2, y + 2, 28, 20); } ctx.restore(); };
