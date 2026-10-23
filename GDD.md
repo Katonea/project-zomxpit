@@ -390,6 +390,55 @@
    - 공이 핀 위에서 멈춤(속력 < 40이 0.3초): 좌우 무작위로 90px/초, 위로 60px/초 살짝 굴려 떨어뜨림.
    - 칸 입구(y > 칸 위 − 40): 공이 든 칸의 가장자리 14px 안으로 가두고 가로 속도 × 0.85(칸 안으로 흘러 들어감).
    - 칸 바닥(칸 위 + 100 − 14)에 닿으면 끝 → 경로·충돌 이벤트·떨어진 칸을 반환.
+   - **벽 모델 (중요)**: 아치는 원형 벽에 대고 반사하지 않습니다. 매 스텝 공의 높이에서 아치 원의 가로 반폭 `hw = √(R² − (y − cy)²) − 12`(cy 아래는 R − 12)를 구해 **좌우 한계 xmin/xmax로만** 쓰고, 넘으면 `vx`만 뒤집어 0.6배(vy는 그대로). 맨 위(topY)에 닿으면 `vy = |vy| × 0.6`만. 레인 안(`launch`)에서는 공이 레인 두 벽 사이에서 그대로 위로 올라가며 핀 충돌을 하지 않습니다.
+   - 아래 코드가 이 절의 기준 구현입니다. **그대로 옮기세요**(상수 `PINS`·`BUMPERS`·`ARC`·`LANE`·`LANE_TOP`·`MB`·`SLOT_W`는 아트 팩에 있음).
+
+```js
+const PB_DT = 1/120;
+function simBall(vy0, kick, seed) { // 순수 물리 (효과음·파티클 없음). 반환: 경로(x,y 연속), 범퍼·핀 충돌 이벤트, 떨어진 칸
+  const b = {x:(LANE.x0 + LANE.x1)/2, y:944, vx:0, vy:vy0, launch:true}, path = [], ev = [], dt = PB_DT, pins = [...PINS, ...BUMPERS];
+  let stk = 0, free = 0, r = seed;
+  for (let n = 0; n < 1400; n++) {
+    b.vy += 1500*dt;
+    if (b.launch) { if (b.y < ARC.cy - 120) { b.launch = false; b.vx -= kick; } } else if (free > 0) free -= dt;
+    if (!b.launch && Math.hypot(b.vx, b.vy) < 40) { if ((stk += dt) > .3) { stk = 0; r = (r*16807)%2147483647; b.vx = (r%2 ? -1 : 1)*90; b.vy = -60; free = .3; } } else stk = 0; // 핀 위에 멈춤: 아주 살짝 굴러 떨어짐
+    b.x += b.vx*dt; b.y += b.vy*dt;
+    const topY = ARC.cy - ARC.R + 14; if (b.y < topY) { b.y = topY; b.vy = Math.abs(b.vy)*.6; }
+    const hw = (b.y < ARC.cy ? Math.sqrt(Math.max(0, ARC.R*ARC.R - (b.y - ARC.cy)**2)) : ARC.R) - 12;
+    let xmin = ARC.cx - hw, xmax = ARC.cx + hw;
+    if (b.y >= LANE_TOP) { if (b.launch) { xmin = LANE.x0 + 8; xmax = LANE.x1 - 8; } else xmax = Math.min(xmax, LANE.x0 - 10); }
+    if (b.x < xmin) { b.x = xmin; b.vx = Math.abs(b.vx)*.6; } else if (b.x > xmax) { b.x = xmax; b.vx = -Math.abs(b.vx)*.6; }
+    if (b.launch && b.y > 960) { b.y = 960; b.vy = 0; }
+    if (!b.launch) for (let k = 0; k < pins.length; k++) {
+      const p = pins[k], dx = b.x - p.x, dy = b.y - p.y; if (Math.abs(dy) > 40) continue;
+      const d = Math.hypot(dx, dy), m = p.r + 8; if (d >= m || d === 0) continue;
+      const nx = dx/d, ny = dy/d, dot = b.vx*nx + b.vy*ny, e = p.c ? 1.3 : .55;
+      if (dot < 0) { b.vx -= (1 + e)*dot*nx; b.vy -= (1 + e)*dot*ny; ev.push(n, k); }
+      b.x = p.x + nx*m; b.y = p.y + ny*m;
+    }
+    if (b.y > MB.slotY - 40) { const sl = Math.max(0, Math.min(PINBALL.slots.length - 1, Math.floor((b.x - MB.x0)/SLOT_W))), c = MB.x0 + SLOT_W*(sl + .5);
+      b.x = Math.max(c - SLOT_W/2 + 14, Math.min(c + SLOT_W/2 - 14, b.x)); b.vx *= .85; }
+    path.push(b.x, b.y);
+    if (b.y > MB.slotY + MB.slotH - 14) return {path, ev, slot:Math.max(0, Math.min(PINBALL.slots.length - 1, Math.floor((b.x - MB.x0)/SLOT_W)))};
+  }
+  return {path, ev, slot:-1};
+}
+const PB_POOL = {}; // 시도하다 다른 칸에 떨어진 경로는 그 칸용으로 모아 뒀다가 씀 (발사당 평균 시뮬레이션 1번 정도)
+function planBall(slot) { // 정해진 칸에 떨어지는 자연스러운 경로 찾기 (최대 70번 시도)
+  const pool = PB_POOL[slot]; if (pool && pool.length) return pool.pop();
+  let best = null, bd = 1e9;
+  for (let t = 0; t < 70; t++) {
+    const r = simBall(-(1850 + Math.random()*350), 220 + Math.random()*520, 1 + Math.floor(Math.random()*1e6));
+    if (r.slot === slot) return r;
+    if (r.slot >= 0) { const q = PB_POOL[r.slot] = PB_POOL[r.slot] || []; if (q.length < 8) q.push(r); }
+    const d = r.slot < 0 ? 1e6 : Math.abs(r.slot - slot); if (d < bd) { bd = d; best = r; }
+  }
+  const p = best.path, n = p.length/2, sx = MB.x0 + SLOT_W*(slot + .5), lx = p[p.length - 2]; // 못 찾음: 칸 입구 위 150px부터 조금씩 옮김
+  for (let k = 0; k < n; k++) { const y = p[k*2 + 1], w = Math.max(0, Math.min(1, (y - (MB.slotY - 150))/150)); p[k*2] += (sx - lx)*w*w; }
+  best.slot = slot; return best;
+}
+```
+
 2. **목표 칸 경로 찾기 `planBall(slot)`**: 무작위 `vy0`·`kick`·시드로 최대 70번 시뮬레이션해 **목표 칸에 떨어지는 경로**를 찾습니다. 다른 칸에 떨어진 경로는 칸별로 최대 8개까지 저장해 두었다가 다음 발사에 재사용합니다(평균 1번 시뮬레이션). 70번 안에 못 찾으면 가장 가까운 경로를 쓰되, **칸 입구 위 150px 구간에서만** 가로 위치를 목표 칸 쪽으로 서서히(제곱 곡선) 옮깁니다.
 3. **재생 `stepBall`**: 찾은 경로를 1/120초 간격 그대로 재생합니다. 공 뒤에 짧은 꼬리(최근 8점). 범퍼 충돌 시점에 범퍼 0.15초 흰색 + 소리 `bump` + 화면 흔들림 4 + 범퍼 색 불꽃 7개 + 고리. 핀 충돌은 50% 확률로 작은 노란 불꽃 2개.
 4. **칸 도착 연출**: 칸 0.35초 흰 번쩍, 위에 "+경험치"(잭팟은 "잭팟!") 글자, 칸 색 불꽃 10개(잭팟 22개), 잭팟은 화면 흔들림 12 + 전체 번쩍 + 분홍 큰 고리 + 진동. 경험치 칸은 경험치 아이콘을 날립니다(3.4절).
