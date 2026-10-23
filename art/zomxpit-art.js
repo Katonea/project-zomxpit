@@ -767,3 +767,18 @@ function drawCabinet() {
   for (const b of MS.balls) if (b.tr) for (let k = 0; k < b.tr.length; k += 2) { ctx.globalAlpha = k/b.tr.length*.45; ctx.beginPath(); ctx.arc(b.tr[k], b.tr[k + 1], 4 + k/b.tr.length*6, 0, TAU); ctx.fillStyle = '#fff6a0'; ctx.fill(); } ctx.globalAlpha = 1; // 꼬리
   for (const b of MS.balls) { ctx.globalAlpha = .35; ctx.beginPath(); ctx.arc(b.x, b.y, 14, 0, TAU); ctx.fillStyle = '#fff6a0'; ctx.fill(); ctx.globalAlpha = 1; const g = ctx.createRadialGradient(b.x - 3, b.y - 3, 2, b.x, b.y, 9); g.addColorStop(0, '#fff'); g.addColorStop(1, '#b8b0d8'); ctx.beginPath(); ctx.arc(b.x, b.y, 8, 0, TAU); ctx.fillStyle = g; ctx.fill(); uiLine(UI.ink, 3); }
 }
+
+// ---------- 카드·태그·키 배지·한 줄 맞춤 글씨 (부록 B에서 쓰는 UI 함수) ----------
+function uiTag(x, y, label, col) { ctx.font = '900 18px ' + FONT; const w = ctx.measureText(label).width + 30; pxBox(x, y, w, 32, col, {shade:dark(col, .25), sh:1}); uiLabel(label, x + w/2, y + 23, 18, '#fff', 'center', 900); return w; }
+function uiKeyBadge(x, y, n) { pxBox(x - 18, y - 18, 36, 36, '#4a2394', {shade:'#2a1460', sh:1}); uiTxt(String(n), x, y + 8, 22); }
+function uiCard(x, y, w, h, fill, acc, aw = 0, top = false, lw = 6) { // 카드 틀: 도트 상자 + 색띠(왼쪽 aw 폭, top이면 위쪽 aw 높이)
+  const u = lw >= 8 ? 5 : PXU, r = pxBox(x, y, w, h, fill || UI.cream, {drop:true, u, shade:'rgba(120,80,40,.18)'});
+  if (acc && aw) {
+    const A = Math.max(2*u, Math.round(aw/u)*u);
+    if (top) { ctx.fillStyle = acc; ctx.fillRect(r.X + u, r.Y + u, r.W - 2*u, A - u); ctx.fillStyle = lite(acc, .3); ctx.fillRect(r.X + u, r.Y + u, r.W - 2*u, u); ctx.fillStyle = UI.ink; ctx.fillRect(r.X + u, r.Y + A, r.W - 2*u, u); }
+    else { ctx.fillStyle = acc; ctx.fillRect(r.X + u, r.Y + u, A - u, r.H - 2*u); ctx.fillStyle = lite(acc, .3); ctx.fillRect(r.X + u, r.Y + u, A - u, u*2); ctx.fillStyle = dark(acc, .2); ctx.fillRect(r.X + u, r.Y + r.H - 3*u, A - u, u*2);
+      ctx.fillStyle = 'rgba(255,255,255,.2)'; for (let k = 0; k < 3; k++) for (let j = 0; j < r.H/u - 5; j++) { const c = (k*9 + j)%(A/u - 1); ctx.fillRect(r.X + u + c*u, r.Y + (3 + j)*u, u, u); } // 도트 사선 줄무늬
+      ctx.fillStyle = UI.ink; ctx.fillRect(r.X + A, r.Y + u, u, r.H - 2*u); }
+  }
+}
+function fitLabel(s, x, y, size, maxW, c, al, w) { ctx.font = (w || 700) + ' ' + size + 'px ' + FONT; const k = Math.min(1, maxW/ctx.measureText(s).width); uiLabel(s, x, y, Math.floor(size*k), c, al, w); }
