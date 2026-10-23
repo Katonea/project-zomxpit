@@ -195,18 +195,18 @@ const ITEM = {
 };
 const ITEM_BASE = Object.keys(ITEM).filter(k => !ITEM[k].evo);
 const FORMS = { gap: { x: 44, y: 62 }, row: { rows: 2, n: [5, 9] }, block: { rows: 4, n: [4, 4] }, wedge: { tri: [1, 2, 3, 4] }, wall: { rows: 3, n: [7, 9] }, horde: {} };
-// hpMul·bossMul·dmgMul은 game.bot 밸런스 KPI(11.2)에 맞춰 조정함. GDD 원래 값과 근거는 NOTES.md
+// 10.6 확정값 (봇 KPI와 상관없이 표 그대로)
 const LEVELS = [
-  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: 0.80, bossMul: 1.50, dmgMul: 0.60, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
-  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 0.70, bossMul: 1.00, dmgMul: 0.30, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
-  { id: 3, name: '저격 옥상', mid: 'mbsnipe', hpMul: 0.90, bossMul: 0.70, dmgMul: 0.30, waves: 5, midAfter: 2, boss: 'digger', w: { knight: 3, boar: 1, archer: 1, shield: 1 }, forms: ['row', 'wedge', 'block'] },
-  { id: 4, name: '바리케이드', mid: 'mbflame', hpMul: 0.95, bossMul: 0.60, dmgMul: 0.18, waves: 5, midAfter: 2, boss: 'paladin', w: { knight: 2, shield: 2, archer: 1, boar: 1 }, forms: ['wall', 'block'] },
-  { id: 5, name: '폐병원', mid: 'mbtoxic', hpMul: 1.40, bossMul: 2.60, dmgMul: 0.30, waves: 6, midAfter: 3, boss: 'archmage', w: { knight: 3, archer: 1, shield: 1, priest: 1, boar: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
-  { id: 6, name: '폭탄 공장', mid: 'midboss', hpMul: 2.01, bossMul: 8.10, dmgMul: 1.00, waves: 6, midAfter: 3, boss: 'butcher', w: { knight: 3, bomber: 2, boar: 1, archer: 1 }, forms: ['wedge', 'row'] },
-  { id: 7, name: '검문소', mid: 'mbdash', hpMul: 1.50, bossMul: 4.60, dmgMul: 0.30, waves: 6, midAfter: 3, boss: 'captain', w: { knight: 2, archer: 2, shield: 1, priest: 1, boar: 1 }, forms: ['wall', 'row'] },
-  { id: 8, name: '진압 방벽', mid: 'mbsnipe', hpMul: 1.90, bossMul: 2.80, dmgMul: 0.27, waves: 6, midAfter: 3, boss: 'digger', w: { shield: 2, knight: 2, bomber: 1, priest: 1, boar: 1 }, forms: ['block', 'wall'] },
-  { id: 9, name: '총공세', mid: 'mbflame', hpMul: 2.10, bossMul: 1.20, dmgMul: 0.35, waves: 6, midAfter: 3, boss: 'paladin', w: { boar: 2, knight: 3, archer: 2, shield: 1, priest: 1, bomber: 2 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
-  { id: 10, name: '정유소', mid: 'mbtoxic', hpMul: 2.00, bossMul: 3.30, dmgMul: 0.70, waves: 7, midAfter: 3, boss: 'archmage', w: { boar: 2, knight: 3, archer: 1, shield: 1, priest: 1, bomber: 1, mage: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 1, name: '폐허 입구', mid: 'midboss', hpMul: .80, bossMul: .35, dmgMul: .60, waves: 4, midAfter: 2, boss: 'butcher', w: { knight: 1 }, forms: ['row', 'block'] },
+  { id: 2, name: '기는 자의 골목', mid: 'mbdash', hpMul: 1.08, bossMul: .52, dmgMul: .75, waves: 5, midAfter: 2, boss: 'captain', w: { knight: 3, boar: 1, shield: 1 }, forms: ['row', 'wedge'] },
+  { id: 3, name: '저격 옥상', mid: 'mbsnipe', hpMul: 1.21, bossMul: .33, dmgMul: .85, waves: 5, midAfter: 2, boss: 'digger', w: { knight: 3, boar: 1, archer: 1, shield: 1 }, forms: ['row', 'wedge', 'block'] },
+  { id: 4, name: '바리케이드', mid: 'mbflame', hpMul: 1.58, bossMul: .33, dmgMul: .90, waves: 5, midAfter: 2, boss: 'paladin', w: { knight: 2, shield: 2, archer: 1, boar: 1 }, forms: ['wall', 'block'] },
+  { id: 5, name: '폐병원', mid: 'mbtoxic', hpMul: 1.84, bossMul: 1.60, dmgMul: 1.25, waves: 6, midAfter: 3, boss: 'archmage', w: { knight: 3, archer: 1, shield: 1, priest: 1, boar: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 6, name: '폭탄 공장', mid: 'midboss', hpMul: 2.01, bossMul: 4.85, dmgMul: 1.35, waves: 6, midAfter: 3, boss: 'butcher', w: { knight: 3, bomber: 2, boar: 1, archer: 1 }, forms: ['wedge', 'row'] },
+  { id: 7, name: '검문소', mid: 'mbdash', hpMul: 2.18, bossMul: 3.85, dmgMul: 1.40, waves: 6, midAfter: 3, boss: 'captain', w: { knight: 2, archer: 2, shield: 1, priest: 1, boar: 1 }, forms: ['wall', 'row'] },
+  { id: 8, name: '진압 방벽', mid: 'mbsnipe', hpMul: 2.58, bossMul: 1.93, dmgMul: 1.45, waves: 6, midAfter: 3, boss: 'digger', w: { shield: 2, knight: 2, bomber: 1, priest: 1, boar: 1 }, forms: ['block', 'wall'] },
+  { id: 9, name: '총공세', mid: 'mbflame', hpMul: 2.91, bossMul: 1.70, dmgMul: 1.50, waves: 6, midAfter: 3, boss: 'paladin', w: { boar: 2, knight: 3, archer: 2, shield: 1, priest: 1, bomber: 2 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
+  { id: 10, name: '정유소', mid: 'mbtoxic', hpMul: 2.30, bossMul: .70, dmgMul: 1.00, waves: 7, midAfter: 3, boss: 'archmage', w: { boar: 2, knight: 3, archer: 1, shield: 1, priest: 1, bomber: 1, mage: 1 }, forms: ['row', 'block', 'wedge', 'wall', 'horde'] },
 ];
 
 // ===================== 4. 저장 (META) =====================
@@ -1001,7 +1001,7 @@ function reset(levelId, o = {}) {
     mode: 'play', t: 0, L, level: levelId, p, ch, tutorial: !!o.tutorial, saving: o.saving !== false,
     raid: o.raid || null, fieldW: o.raid ? FIELD.openW : FIELD.startW, fieldFrom: FIELD.startW, fieldTo: FIELD.startW, fieldT: 0,
     normals: [], owned: startBalls(o.picks), items: [], slots: [], balls: [], enemies: [], forms: [], shots: [], haz: [], gems: [], caps: [], fx: [], nums: [], timers: [],
-    wave: 1, waveT: 0, spawnT: .5, phase: 'waves', wavesDone: 0, eliteT: 0, bossT: 0, boss: null, banner: null,
+    wave: 1, waveT: 0, spawnT: 0, phase: 'waves', wavesDone: 0, eliteT: 0, bossT: 0, boss: null, banner: null,
     lv: 1, xp: 0, pendLv: 0, pendCaps: [], fireT: 0, nextSlot: 0, hs: 0, shake: 0, shakeAmp: 0, eid: 0, kills: 0,
     chrono: 0, phoenixUsed: false, charmT: 0, turretT: 0, winT: 0, card: null, modal: null, result: null,
   };
@@ -1200,15 +1200,17 @@ function spawn(type, x, y, opt = {}) {
   S.enemies.push(e);
   return e;
 }
+const waveIdx = () => S.wave - 1; // 6.7: 공식의 웨이브 번호 w는 0부터
+const maxCols = () => Math.floor((S.fieldW - 40) / FORMS.gap.x); // 420 → 8열, 580 → 12열
 function spawnFormation() {
-  const w = S.wave, maxCols = Math.max(4, Math.floor((S.fieldW - 24) / FORMS.gap.x));
+  const w = waveIdx(), cols = maxCols();
   const forms = S.L.forms.filter(f => f !== 'horde');
-  const kind = rand() < .3 + .12 * w ? 'horde' : forms[randi(0, forms.length - 1)];
+  const kind = !S.raid && rand() < .3 + .12 * w ? 'horde' : forms[randi(0, forms.length - 1)]; // 침략에서는 대군 없음
   const F0 = FORMS[kind];
   let rows; // rows[0] = 맨 앞(아래) 줄의 마리 수
-  if (kind === 'horde') rows = Array(Math.min(9, 4 + w)).fill(maxCols);
+  if (kind === 'horde') rows = Array(Math.min(9, 4 + w)).fill(cols);
   else if (F0.tri) rows = F0.tri.slice();
-  else { const n = Math.min(randi(F0.n[0], F0.n[1]), maxCols); rows = Array(F0.rows).fill(n); }
+  else { const n = Math.min(randi(F0.n[0], F0.n[1]), cols); rows = Array(F0.rows).fill(n); }
   const total = rows.reduce((a, b) => a + b, 0);
   const rowType = rows.map(() => wkey(S.L.w)); // 한 행은 같은 종류, 원거리·지원형은 뒤쪽 행
   const back = t => (ENEMY[t].ranged || ENEMY[t].support) ? 1 : 0;
@@ -1234,7 +1236,7 @@ function spawnFormation() {
 }
 // 화면 위 대기열(아직 보드에 안 들어온 적)이 110 × (보드폭/420)마리를 넘으면 스폰 연기
 function queueFull() { let n = 0; for (const e of S.enemies) if (e.y < TOP) n++; return n > 110 * (S.fieldW / 420); }
-function spawnInterval(n) { const w = S.wave; return n * Math.max(.35, 1.15 - .12 * w) * RULE.formGap / RULE.spawnMul / (S.fieldW / 420) / (1 + RULE.waveDense * w); }
+function spawnInterval(n) { const w = waveIdx(); return n * Math.max(.35, 1.15 - .12 * w) * RULE.formGap / RULE.spawnMul / (S.fieldW / 420) / (1 + RULE.waveDense * w); }
 
 // ---------- 피해 ----------
 function hurt(e, dmg, o = {}) {
